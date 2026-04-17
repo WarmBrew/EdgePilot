@@ -44,39 +44,39 @@
   - 实现登录 API (JWT 生成 + HttpOnly Cookie)
   - 实现密码 bcrypt 加密 (cost=12)
 
-- [ ] 3.2 JWT Token 管理
+- [x] 3.2 JWT Token 管理
   - 实现 Access Token (15 分钟)
   - 实现 Refresh Token (7 天)
   - 实现令牌黑名单机制 (Redis)
 
-- [ ] 3.3 认证与授权中间件
+- [x] 3.3 认证与授权中间件
   - 实现 AuthenticationMiddleware (JWT 验证)
   - 实现 AuthorizationMiddleware (RBAC 权限校验)
   - 实现租户隔离 (WHERE tenant_id = ?)
 
-- [ ] 3.4 输入验证中间件
+- [x] 3.4 输入验证中间件
   - 实现限流中间件 (RateLimiter)
   - 实现签名验证中间件 (HMAC-SHA256)
   - 实现输入参数校验器
 
 ## Phase 4: 设备管理 (3-4 天)
 
-- [ ] 4.1 设备注册与认证
+- [x] 4.1 设备注册与认证
   - 实现设备注册 API (返回 agent_token)
   - 实现设备状态管理 (online/offline/heartbeat_miss)
 
-- [ ] 4.2 设备 CRUD API
+- [x] 4.2 设备 CRUD API
   - 实现设备列表 (分页/搜索/筛选)
   - 实现设备详情查询
   - 实现设备更新与删除
   - 实现批量操作
 
-- [ ] 4.3 设备分组管理
+- [x] 4.3 设备分组管理
   - 实现分组 CRUD API
   - 实现设备分组分配
   - 实现分组统计
 
-- [ ] 4.4 心跳检测机制
+- [x] 4.4 心跳检测机制
   - 实现设备心跳 API (每 30 秒)
   - 实现离线检测定时任务
   - Redis 缓存设备状态映射
