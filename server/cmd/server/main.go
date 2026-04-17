@@ -15,6 +15,7 @@ import (
 	"github.com/edge-platform/server/internal/domain/models"
 	pkgRedis "github.com/edge-platform/server/internal/pkg/redis"
 	"github.com/edge-platform/server/internal/service"
+	"github.com/edge-platform/server/internal/websocket"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
@@ -56,9 +57,16 @@ func main() {
 	}
 
 	r := gin.Default()
+
+	hub := websocket.NewHub()
+	gw := websocket.NewGateway(redisClient.Raw(), hub)
+	gw.SetMessageHandler(nil)
+
 	routes.SetupAuthRoutes(r, db, redisClient)
 	routes.SetupDeviceRoutes(r, db, redisClient)
 	routes.SetupGroupRoutes(r, db)
+	routes.SetupTerminalRoutes(r, db, redisClient, gw)
+	routes.SetupFileRoutes(r, db, redisClient, gw)
 
 	addr := fmt.Sprintf(":%d", cfg.App.Port)
 	srv := &http.Server{

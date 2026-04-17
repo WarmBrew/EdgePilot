@@ -15,10 +15,15 @@ const (
 	ActionTerminalOpen   = "terminal_open"
 	ActionTerminalClose  = "terminal_close"
 	ActionTerminalExpire = "terminal_expire"
+	ActionFileList       = "file_list"
+	ActionFileRead       = "file_read"
+	ActionFileWrite      = "file_write"
+	ActionFileDelete     = "file_delete"
+	ActionFileUpload     = "file_upload"
 )
 
 // ValidAuditActions lists all allowed audit action values
-var ValidAuditActions = []string{ActionExecCommand, ActionUpload, ActionDownload, ActionEdit, ActionTerminalOpen, ActionTerminalClose, ActionTerminalExpire}
+var ValidAuditActions = []string{ActionExecCommand, ActionUpload, ActionDownload, ActionEdit, ActionTerminalOpen, ActionTerminalClose, ActionTerminalExpire, ActionFileList, ActionFileRead, ActionFileWrite, ActionFileDelete, ActionFileUpload}
 
 // AuditLog records user actions for compliance and debugging.
 // NOTE: AuditLog does NOT use BaseModel and has NO soft delete -- audit logs are permanent.
