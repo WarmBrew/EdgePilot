@@ -1,0 +1,127 @@
+# Edge Device Management Platform - Docker Compose
+# Phase 1: Infrastructure Services
+version: "3.8"
+
+services:
+  # ==========================================
+  # PostgreSQL Database
+  # ==========================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: edge-platform-postgres
+    restart: unless-stopped
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${DB_NAME:-edge_platform}
+      POSTGRES_USER: ${DB_USER:-edge_platform}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-edge_platform_secret}
+      TZ: Asia/Shanghai
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-edge_platform} -d ${DB_NAME:-edge_platform}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ==========================================
+  # Redis Cache
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: edge-platform-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ==========================================
+  # Web Frontend (Nginx)
+  # ==========================================
+  web:
+    image: nginx:alpine
+    container_name: edge-platform-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - logs:/var/log/nginx
+    networks:
+      - app-network
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider -o /dev/null http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ==========================================
+  # API Backend (Go Service)
+  # ==========================================
+  api:
+    image: nginx:alpine  # TODO: Replace with actual Go service image after build
+    container_name: edge-platform-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Override localhost references to use Docker service names
+      DB_HOST: postgres
+      REDIS_HOST: redis
+      APP_PORT: "8080"
+    ports:
+      - "8080:8080"
+    networks:
+      - app-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - logs:/var/log/app
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider -o /dev/null http://localhost:8080/ || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+# ==========================================
+# Volumes
+# ==========================================
+volumes:
+  pg_data:
+    driver: local
+  redis_data:
+    driver: local
+  logs:
+    driver: local
+
+# ==========================================
+# Networks
+# ==========================================
+networks:
+  app-network:
+    driver: bridge
