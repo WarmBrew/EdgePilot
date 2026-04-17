@@ -39,6 +39,9 @@ type Gateway struct {
 	maxSessions int
 	serverID    string
 	mu          sync.Mutex
+
+	respMu      sync.RWMutex
+	respWaiters map[string]chan *WSMessage
 }
 
 // NewGateway creates a new Gateway instance.
@@ -54,6 +57,7 @@ func NewGateway(redisClient *goredis.Client, hub *Hub) *Gateway {
 		hub:         hub,
 		maxSessions: maxSessions,
 		serverID:    fmt.Sprintf("server-%d", time.Now().UnixNano()),
+		respWaiters: make(map[string]chan *WSMessage),
 	}
 }
 
@@ -208,4 +212,82 @@ func (g *Gateway) isDeviceOnline(ctx context.Context, deviceID string) (bool, er
 // IsDeviceOnline checks if a device is currently connected to this server instance.
 func (g *Gateway) IsDeviceOnline(deviceID string) bool {
 	return g.hub.GetClient(deviceID) != nil
+}
+
+// SetMessageHandler sets the message handler on the hub for incoming device messages.
+func (g *Gateway) SetMessageHandler(handler MessageHandler) {
+	g.hub.SetMessageHandler(g.handleDeviceMessage)
+
+	if handler != nil {
+		g.hub.SetMessageHandler(func(deviceID string, msg *WSMessage) {
+			if g.tryResolveResponse(msg) {
+				return
+			}
+			handler(deviceID, msg)
+		})
+	}
+}
+
+// SendAndWait sends a message to a device and waits for a response with the given session ID.
+// Returns the response message or an error if the device is offline, timeout, or send fails.
+func (g *Gateway) SendAndWait(ctx context.Context, deviceID, messageType string, payload interface{}, sessionID string, timeout time.Duration) (*WSMessage, error) {
+	online, err := g.isDeviceOnline(ctx, deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check device online status: %w", err)
+	}
+	if !online {
+		return nil, fmt.Errorf("device %s is not online", deviceID)
+	}
+
+	waiter := make(chan *WSMessage, 1)
+
+	g.respMu.Lock()
+	g.respWaiters[sessionID] = waiter
+	g.respMu.Unlock()
+
+	defer func() {
+		g.respMu.Lock()
+		delete(g.respWaiters, sessionID)
+		g.respMu.Unlock()
+	}()
+
+	if err := g.SendMessageToDevice(deviceID, messageType, payload); err != nil {
+		return nil, fmt.Errorf("failed to send message: %w", err)
+	}
+
+	select {
+	case resp := <-waiter:
+		return resp, nil
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("waiting for device response timed out after %v", timeout)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (g *Gateway) handleDeviceMessage(deviceID string, msg *WSMessage) {
+	if g.tryResolveResponse(msg) {
+		return
+	}
+}
+
+func (g *Gateway) tryResolveResponse(msg *WSMessage) bool {
+	if msg.Session == "" {
+		return false
+	}
+
+	g.respMu.RLock()
+	waiter, exists := g.respWaiters[msg.Session]
+	g.respMu.RUnlock()
+
+	if !exists {
+		return false
+	}
+
+	select {
+	case waiter <- msg:
+	default:
+	}
+
+	return true
 }

@@ -8,14 +8,17 @@ import (
 
 // AuditAction constants
 const (
-	ActionExecCommand = "exec_command"
-	ActionUpload      = "upload"
-	ActionDownload    = "download"
-	ActionEdit        = "edit"
+	ActionExecCommand    = "exec_command"
+	ActionUpload         = "upload"
+	ActionDownload       = "download"
+	ActionEdit           = "edit"
+	ActionTerminalOpen   = "terminal_open"
+	ActionTerminalClose  = "terminal_close"
+	ActionTerminalExpire = "terminal_expire"
 )
 
 // ValidAuditActions lists all allowed audit action values
-var ValidAuditActions = []string{ActionExecCommand, ActionUpload, ActionDownload, ActionEdit}
+var ValidAuditActions = []string{ActionExecCommand, ActionUpload, ActionDownload, ActionEdit, ActionTerminalOpen, ActionTerminalClose, ActionTerminalExpire}
 
 // AuditLog records user actions for compliance and debugging.
 // NOTE: AuditLog does NOT use BaseModel and has NO soft delete -- audit logs are permanent.
