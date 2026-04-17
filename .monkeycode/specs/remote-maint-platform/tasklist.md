@@ -2,44 +2,44 @@
 
 ## Phase 1: 基础设施搭建 (1-2 天)
 
-- [ ] 1.1 项目结构初始化
+- [x] 1.1 项目结构初始化
   - 创建 `web/`, `server/`, `agent/` 目录
   - 配置 `.gitignore`, `.env.example`, `README.md`
 
-- [ ] 1.2 Docker Compose 编排
+- [x] 1.2 Docker Compose 编排
   - 编写 `docker-compose.yml` (postgres, redis, web, api)
   - 配置数据卷持久化
   - 编写健康检查配置
 
-- [ ] 1.3 环境变量与配置管理
+- [x] 1.3 环境变量与配置管理
   - 创建 `.env.example` 模板文件
   - 编写 Go 配置加载模块 (viper)
   - 编写前端环境变量注入 (Vite)
 
-- [ ] 1.4 CI/CD 基础配置
+- [x] 1.4 CI/CD 基础配置
   - 编写 GitHub Actions Workflow
   - 配置自动构建和测试
 
 ## Phase 2: 数据库与数据模型 (2-3 天)
 
-- [ ] 2.1 PostgreSQL 数据库迁移
+- [x] 2.1 PostgreSQL 数据库迁移
   - 编写 SQL 迁移文件 (tenants, users, devices, device_groups, terminal_sessions, audit_logs)
   - 实现 GORM 自动迁移
   - 添加索引 (tenant_id, status, created_at)
 
-- [ ] 2.2 GORM 数据模型定义
+- [x] 2.2 GORM 数据模型定义
   - 定义 Tenant, User, Device, DeviceGroup 模型
   - 实现 UUID 主键自动生成
   - 实现软删除支持
 
-- [ ] 2.3 Redis 服务初始化
+- [x] 2.3 Redis 服务初始化
   - 编写 Redis 连接配置
   - 实现分布式锁工具
   - 实现限流计数器中间件
 
 ## Phase 3: 认证与授权 (3-4 天)
 
-- [ ] 3.1 用户注册与登录
+- [x] 3.1 用户注册与登录
   - 实现注册 API (邮箱校验 + 密码强度)
   - 实现登录 API (JWT 生成 + HttpOnly Cookie)
   - 实现密码 bcrypt 加密 (cost=12)
