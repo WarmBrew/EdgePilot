@@ -92,6 +92,8 @@
 **/target/
 **/go.work
 **/Cargo.lock
+**/vendor/
+**/go.sum
 
 # Ruby
 *.gem
