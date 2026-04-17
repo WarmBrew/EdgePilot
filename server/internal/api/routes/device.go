@@ -10,6 +10,7 @@ import (
 
 func SetupDeviceRoutes(r *gin.Engine, db *gorm.DB, redis *pkgRedis.RedisClient) {
 	deviceHandler := handlers.NewDeviceHandler(db, redis)
+	heartbeatHandler := handlers.NewHeartbeatHandler(db, redis)
 
 	api := r.Group("/api/v1")
 	{
@@ -17,6 +18,10 @@ func SetupDeviceRoutes(r *gin.Engine, db *gorm.DB, redis *pkgRedis.RedisClient) 
 		api.POST("/devices/register", deviceHandler.RegisterDevice)
 		api.POST("/devices/verify", deviceHandler.VerifyDevice)
 		api.GET("/devices/ws", deviceHandler.AgentWebSocketAuth)
+
+		// Agent heartbeat endpoint (agent token auth)
+		api.POST("/devices/:id/heartbeat", heartbeatHandler.HandleHeartbeat)
+		api.GET("/devices/:id/metrics", heartbeatHandler.GetDeviceMetrics)
 
 		// Authenticated endpoints (tenant-scoped)
 		authGroup := api.Group("")
