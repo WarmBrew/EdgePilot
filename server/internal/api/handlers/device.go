@@ -3,11 +3,14 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
+	"github.com/edge-platform/server/internal/api/middleware"
 	"github.com/edge-platform/server/internal/domain/models"
+	"github.com/edge-platform/server/internal/domain/service"
 	devpkg "github.com/edge-platform/server/internal/pkg/device"
-	"github.com/edge-platform/server/internal/pkg/redis"
+	pkgRedis "github.com/edge-platform/server/internal/pkg/redis"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
@@ -15,11 +18,16 @@ import (
 
 type DeviceHandler struct {
 	db          *gorm.DB
-	redisClient *redis.RedisClient
+	redisClient *pkgRedis.RedisClient
+	svc         *service.DeviceService
 }
 
-func NewDeviceHandler(db *gorm.DB, redis *redis.RedisClient) *DeviceHandler {
-	return &DeviceHandler{db: db, redisClient: redis}
+func NewDeviceHandler(db *gorm.DB, redis *pkgRedis.RedisClient) *DeviceHandler {
+	return &DeviceHandler{
+		db:          db,
+		redisClient: redis,
+		svc:         service.NewDeviceService(db, redis),
+	}
 }
 
 type RegisterDeviceRequest struct {
@@ -56,6 +64,18 @@ type AgentAuthMessage struct {
 	Type       string `json:"type"`
 	DeviceID   string `json:"device_id"`
 	AgentToken string `json:"agent_token"`
+}
+
+type UpdateDeviceRequest struct {
+	Name        string  `json:"name"`
+	GroupID     *string `json:"group_id"`
+	Description *string `json:"description"`
+}
+
+type BatchDeviceRequest struct {
+	DeviceIDs []string       `json:"device_ids" binding:"required"`
+	Action    string         `json:"action" binding:"required,oneof=delete move_to_group"`
+	Params    map[string]any `json:"params"`
 }
 
 // RegisterDevice handles POST /api/v1/devices/register.
@@ -191,4 +211,174 @@ func (h *DeviceHandler) AgentWebSocketAuth(c *gin.Context) {
 
 var wsUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+// ListDevices handles GET /api/v1/devices
+func (h *DeviceHandler) ListDevices(c *gin.Context) {
+	tenantID, ok := middleware.GetTenantID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "tenant context missing"})
+		return
+	}
+
+	filters := service.DeviceListFilters{
+		Page:    1,
+		Size:    20,
+		SortBy:  "created_at",
+		SortDir: "desc",
+	}
+
+	if p := c.Query("page"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil && v > 0 {
+			filters.Page = v
+		}
+	}
+	if s := c.Query("size"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			filters.Size = v
+		}
+	}
+	if status := c.Query("status"); status != "" {
+		filters.Status = status
+	}
+	if groupID := c.Query("group_id"); groupID != "" {
+		filters.GroupID = groupID
+	}
+	if search := c.Query("search"); search != "" {
+		filters.Search = search
+	}
+	if sortBy := c.Query("sort_by"); sortBy != "" {
+		filters.SortBy = sortBy
+	}
+	if sortDir := c.Query("sort_dir"); sortDir != "" {
+		filters.SortDir = sortDir
+	}
+
+	resp, err := h.svc.ListDevices(c.Request.Context(), tenantID, filters)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list devices"})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+// GetDevice handles GET /api/v1/devices/:id
+func (h *DeviceHandler) GetDevice(c *gin.Context) {
+	tenantID, ok := middleware.GetTenantID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "tenant context missing"})
+		return
+	}
+
+	deviceID := c.Param("id")
+
+	device, err := h.svc.GetDevice(c.Request.Context(), tenantID, deviceID)
+	if err != nil {
+		if err.Error() == "device not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "device not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get device"})
+		return
+	}
+
+	c.JSON(http.StatusOK, device)
+}
+
+// UpdateDevice handles PUT /api/v1/devices/:id
+func (h *DeviceHandler) UpdateDevice(c *gin.Context) {
+	tenantID, ok := middleware.GetTenantID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "tenant context missing"})
+		return
+	}
+
+	deviceID := c.Param("id")
+
+	var req UpdateDeviceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	if req.Name == "" && req.GroupID == nil && req.Description == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one field must be provided for update"})
+		return
+	}
+
+	input := service.UpdateDeviceInput{
+		Name:        req.Name,
+		GroupID:     req.GroupID,
+		Description: req.Description,
+	}
+
+	device, err := h.svc.UpdateDevice(c.Request.Context(), tenantID, deviceID, input)
+	if err != nil {
+		if err.Error() == "device not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "device not found"})
+			return
+		}
+		if err.Error() == "device group not found or does not belong to tenant" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update device"})
+		return
+	}
+
+	c.JSON(http.StatusOK, device)
+}
+
+// DeleteDevice handles DELETE /api/v1/devices/:id
+func (h *DeviceHandler) DeleteDevice(c *gin.Context) {
+	tenantID, ok := middleware.GetTenantID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "tenant context missing"})
+		return
+	}
+
+	userID, _ := middleware.GetUserID(c)
+	deviceID := c.Param("id")
+
+	if err := h.svc.DeleteDevice(c.Request.Context(), tenantID, deviceID, userID); err != nil {
+		if err.Error() == "device not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "device not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete device"})
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
+// BatchDevices handles POST /api/v1/devices/batch
+func (h *DeviceHandler) BatchDevices(c *gin.Context) {
+	tenantID, ok := middleware.GetTenantID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "tenant context missing"})
+		return
+	}
+
+	userID, _ := middleware.GetUserID(c)
+
+	var req BatchDeviceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	if len(req.DeviceIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "device_ids cannot be empty"})
+		return
+	}
+
+	result, err := h.svc.BatchOperation(c.Request.Context(), tenantID, req.DeviceIDs, req.Action, req.Params, userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }
