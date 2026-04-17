@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"time"
 
@@ -84,4 +85,10 @@ func ValidateToken(tokenString string) (*Claims, error) {
 		return nil, fmt.Errorf("invalid token")
 	}
 	return claims, nil
+}
+
+// HashTokenForBlacklist creates a SHA-256 hash of the token for blacklist lookup.
+// Used when the JWT ID claim is not available.
+func HashTokenForBlacklist(tokenString, secret string) [32]byte {
+	return sha256.Sum256([]byte(tokenString + secret))
 }

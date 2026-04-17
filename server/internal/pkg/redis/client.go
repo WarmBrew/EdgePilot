@@ -63,3 +63,12 @@ func (r *RedisClient) Close() error {
 func (r *RedisClient) Raw() *goredis.Client {
 	return r.client
 }
+
+// CtxWithTimeout returns a context with a default timeout if the parent is nil,
+// otherwise derives a new context with timeout from the parent.
+func CtxWithTimeout(parent *context.Context) (context.Context, context.CancelFunc) {
+	if parent != nil {
+		return context.WithTimeout(*parent, 3*time.Second)
+	}
+	return context.WithTimeout(context.Background(), 3*time.Second)
+}
