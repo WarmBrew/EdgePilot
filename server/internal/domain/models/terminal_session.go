@@ -4,12 +4,14 @@ import "time"
 
 // TerminalSessionStatus constants
 const (
-	SessionActive = "active"
-	SessionClosed = "closed"
+	SessionPending = "pending"
+	SessionActive  = "active"
+	SessionClosed  = "closed"
+	SessionFailed  = "failed"
 )
 
 // ValidSessionStatuses lists all allowed session status values
-var ValidSessionStatuses = []string{SessionActive, SessionClosed}
+var ValidSessionStatuses = []string{SessionPending, SessionActive, SessionClosed, SessionFailed}
 
 // TerminalSession represents an active or closed terminal session
 type TerminalSession struct {

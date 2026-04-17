@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -84,4 +85,48 @@ func (r *RedisClient) TTL(ctx context.Context, key string) (time.Duration, error
 		return 0, fmt.Errorf("redis ttl key %q failed: %w", key, err)
 	}
 	return ttl, nil
+}
+
+const (
+	terminalSessionPrefix = "terminal:session:"
+	terminalSessionTTL    = 7 * 24 * time.Hour
+)
+
+type TerminalSessionCacheEntry struct {
+	UserID    string    `json:"user_id"`
+	DeviceID  string    `json:"device_id"`
+	PtyPath   string    `json:"pty_path"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (r *RedisClient) CacheTerminalSession(ctx context.Context, sessionID string, entry TerminalSessionCacheEntry) error {
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("marshal terminal session cache: %w", err)
+	}
+
+	key := terminalSessionPrefix + sessionID
+	return r.Set(ctx, key, data, terminalSessionTTL)
+}
+
+func (r *RedisClient) GetTerminalSessionCache(ctx context.Context, sessionID string) (*TerminalSessionCacheEntry, error) {
+	key := terminalSessionPrefix + sessionID
+	val, err := r.Get(ctx, key)
+	if err != nil {
+		if errors.Is(err, ErrKeyNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var entry TerminalSessionCacheEntry
+	if err := json.Unmarshal([]byte(val), &entry); err != nil {
+		return nil, fmt.Errorf("unmarshal terminal session cache: %w", err)
+	}
+	return &entry, nil
+}
+
+func (r *RedisClient) DeleteTerminalSessionCache(ctx context.Context, sessionID string) error {
+	key := terminalSessionPrefix + sessionID
+	return r.Del(ctx, key)
 }

@@ -83,7 +83,7 @@
 
 ## Phase 5: WebSocket 终端网关 (5-7 天)
 
-- [ ] 5.1 WebSocket 网关
+- [x] 5.1 WebSocket 网关
   - 实现 WebSocket 连接处理器
   - 实现设备 ID 到 WS 连接映射 (Redis)
   - 实现连接心跳监控
