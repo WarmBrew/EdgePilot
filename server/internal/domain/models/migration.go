@@ -41,6 +41,11 @@ func CreateIndexes(db *gorm.DB) error {
 			table: "audit_logs",
 			expr:  "tenant_id, created_at DESC",
 		},
+		{
+			name:  "idx_device_groups_tenant_name_unique",
+			table: "device_groups",
+			expr:  "tenant_id, name",
+		},
 	}
 
 	for _, idx := range indexes {
