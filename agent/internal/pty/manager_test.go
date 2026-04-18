@@ -41,7 +41,7 @@ func TestCreateSession_EmptySessionID(t *testing.T) {
 		"session_id": "",
 	})
 
-	err := mgr.CreateSession(payload)
+	err := mgr.CreateSession(payload, "")
 	if err == nil {
 		t.Fatal("expected error for empty session_id")
 	}
@@ -50,7 +50,7 @@ func TestCreateSession_EmptySessionID(t *testing.T) {
 func TestCreateSession_InvalidPayload(t *testing.T) {
 	mgr := newTestManager(t)
 
-	err := mgr.CreateSession(json.RawMessage(`{invalid json`))
+	err := mgr.CreateSession(json.RawMessage(`{invalid json`), "")
 	if err == nil {
 		t.Fatal("expected error for invalid JSON payload")
 	}
@@ -64,7 +64,7 @@ func TestCreateSession_SessionIDRequired(t *testing.T) {
 		"rows": 24,
 	})
 
-	err := mgr.CreateSession(payload)
+	err := mgr.CreateSession(payload, "")
 	if err == nil {
 		t.Fatal("expected error when session_id is missing")
 	}
@@ -168,7 +168,7 @@ func TestPTYManager_MaxSessionLimit_Concurrent(t *testing.T) {
 				Cols:      80,
 				Rows:      24,
 			})
-			err := mgr.CreateSession(payload)
+			err := mgr.CreateSession(payload, sessionID)
 			mu.Lock()
 			defer mu.Unlock()
 			if err == nil {
@@ -354,7 +354,7 @@ func TestPTYIntegration(t *testing.T) {
 		Rows:      24,
 	})
 
-	err := mgr.CreateSession(payload)
+	err := mgr.CreateSession(payload, "integration-test")
 	if err != nil {
 		t.Fatalf("failed to create PTY session: %v", err)
 	}

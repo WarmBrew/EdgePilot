@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
+	"github.com/edge-platform/server/internal/api/middleware"
 	"github.com/edge-platform/server/internal/domain/models"
 	"github.com/edge-platform/server/internal/pkg/auth"
 	pkgRedis "github.com/edge-platform/server/internal/pkg/redis"
@@ -228,6 +230,102 @@ func (h *TerminalHandler) HandleTerminalWebSocket(c *gin.Context) {
 		"device_id", session.DeviceID, "role", claims.Role)
 
 	h.forwardLoop(bc)
+}
+
+// CreateTerminalSession handles POST /api/v1/devices/:id/terminal
+func (h *TerminalHandler) CreateTerminalSession(c *gin.Context) {
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		return
+	}
+
+	deviceID := c.Param("id")
+	if deviceID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "device_id is required"})
+		return
+	}
+
+	session, err := h.termSessionSvc.CreateSession(c.Request.Context(), userID, deviceID)
+	if err != nil {
+		slog.Warn("failed to create terminal session",
+			"device_id", deviceID, "user_id", userID, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"session_id": session.SessionID,
+		"device_id":  session.DeviceID,
+		"pty_path":   session.PtyPath,
+	})
+}
+
+// ListTerminalSessions handles GET /api/v1/terminal/sessions
+func (h *TerminalHandler) ListTerminalSessions(c *gin.Context) {
+	tenantID, ok := middleware.GetTenantID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "tenant context missing"})
+		return
+	}
+
+	filter := service.ListSessionsFilter{
+		TenantID: tenantID,
+		Page:     1,
+		PageSize: 20,
+	}
+
+	if page := c.Query("page"); page != "" {
+		if v, err := strconv.Atoi(page); err == nil && v > 0 {
+			filter.Page = v
+		}
+	}
+	if size := c.Query("page_size"); size != "" {
+		if v, err := strconv.Atoi(size); err == nil && v > 0 {
+			filter.PageSize = v
+		}
+	}
+	if deviceID := c.Query("device_id"); deviceID != "" {
+		filter.DeviceID = deviceID
+	}
+	if status := c.Query("status"); status != "" {
+		filter.Status = status
+	}
+	if userID := c.Query("user_id"); userID != "" {
+		filter.UserID = userID
+	}
+
+	result, err := h.termSessionSvc.ListSessions(c.Request.Context(), filter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list sessions"})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// CloseTerminalSession handles POST /api/v1/terminal/sessions/:id/close
+func (h *TerminalHandler) CloseTerminalSession(c *gin.Context) {
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		return
+	}
+
+	sessionID := c.Param("id")
+	if sessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "session_id is required"})
+		return
+	}
+
+	if err := h.termSessionSvc.CloseSession(c.Request.Context(), userID, sessionID); err != nil {
+		slog.Warn("failed to close terminal session",
+			"session_id", sessionID, "user_id", userID, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "session closed"})
 }
 
 // forwardLoop starts the bidirectional forwarding between browser and device.

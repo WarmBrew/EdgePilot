@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edge-platform/server/internal/domain/models"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -72,6 +74,14 @@ func (c *Client) ReadPump() {
 		switch msg.Type {
 		case MessageTypeHeartbeat:
 			c.sendPong()
+			if c.hub.db != nil {
+				c.hub.db.Model(&models.Device{}).
+					Where("id = ?", c.deviceID).
+					Updates(map[string]interface{}{
+						"last_heartbeat": time.Now(),
+						"status":         models.StatusOnline,
+					})
+			}
 		default:
 			if c.hub.messageHandler != nil {
 				c.hub.messageHandler(c.deviceID, msg)

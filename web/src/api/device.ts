@@ -4,6 +4,10 @@ export interface Device {
   id: string
   name: string
   status: string
+  platform?: string
+  arch?: string
+  ip_address?: string
+  last_seen?: string
   group_id: string | null
   tenant_id: string
   created_at: string
@@ -12,7 +16,8 @@ export interface Device {
 
 export interface DeviceRegistrationRequest {
   name: string
-  group_id?: string
+  platform: string
+  arch: string
 }
 
 export interface DeviceListResponse {
@@ -31,8 +36,8 @@ export const deviceApi = {
     return apiClient.get(`/devices/${id}`)
   },
 
-  create: (data: DeviceRegistrationRequest): Promise<Device> => {
-    return apiClient.post('/devices', data)
+  create: (data: DeviceRegistrationRequest): Promise<{ device_id: string; agent_token: string }> => {
+    return apiClient.post('/devices/register', data)
   },
 
   update: (id: string, data: { name?: string; group_id?: string }): Promise<Device> => {

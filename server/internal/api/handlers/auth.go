@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -129,10 +130,30 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	// Auto-assign to first tenant or create default
+	var tenant models.Tenant
+	if err := h.db.First(&tenant).Error; err != nil {
+		// No tenant exists, create default
+		tenant = models.Tenant{
+			Name: "Default",
+			Plan: "free",
+		}
+		if err := h.db.Create(&tenant).Error; err != nil {
+			// Another concurrent request may have created the tenant, try to fetch it
+			if err2 := h.db.Where("name = ?", "Default").First(&tenant).Error; err2 != nil {
+				slog.Error("failed to get or create default tenant", "error", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "registration failed"})
+				return
+			}
+		}
+		slog.Info("default tenant ready", "tenant_id", tenant.ID)
+	}
+
 	user := models.User{
 		Email:    req.Email,
 		Password: hashedPassword,
-		Role:     models.RoleViewer,
+		Role:     models.RoleAdmin,
+		TenantID: tenant.ID,
 	}
 
 	if err := h.db.Create(&user).Error; err != nil {
@@ -145,6 +166,9 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		return
 	}
+
+	slog.Info("user registered successfully",
+		"user_id", user.ID, "email", user.Email, "tenant_id", tenant.ID, "role", user.Role)
 
 	c.JSON(http.StatusCreated, AuthResponse{
 		AccessToken: accessToken,

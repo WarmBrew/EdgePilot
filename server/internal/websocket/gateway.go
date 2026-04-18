@@ -273,6 +273,14 @@ func (g *Gateway) IsDeviceOnline(deviceID string) bool {
 	return g.hub.GetClient(deviceID) != nil
 }
 
+// HandleDeviceDisconnect cleans up Redis state when a device disconnects from the Hub.
+func (g *Gateway) HandleDeviceDisconnect(deviceID string) {
+	ctx := context.Background()
+	g.redis.SRem(ctx, redisKeyOnline, deviceID)
+	g.redis.Del(ctx, redisKeyPrefix+deviceID+redisSessionSuffix)
+	slog.Info("device redis state cleaned up on disconnect", "device_id", deviceID)
+}
+
 // SetMessageHandler sets the message handler on the hub for incoming device messages.
 func (g *Gateway) SetMessageHandler(handler MessageHandler) {
 	g.hub.SetMessageHandler(g.handleDeviceMessage)

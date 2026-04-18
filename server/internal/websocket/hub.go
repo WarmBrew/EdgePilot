@@ -4,6 +4,10 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+
+	"github.com/edge-platform/server/internal/domain/models"
+
+	"gorm.io/gorm"
 )
 
 var ErrClientChannelFull = errors.New("client send channel is full")
@@ -13,6 +17,12 @@ var ErrDeviceOnlineLimit = errors.New("device has reached maximum number of conn
 // MessageHandler is called when a message is received from a device.
 type MessageHandler func(deviceID string, msg *WSMessage)
 
+// HeartbeatCallback is called when a heartbeat message is received from a device.
+type HeartbeatCallback func(deviceID string)
+
+// DisconnectCallback is called when a device disconnects from the hub.
+type DisconnectCallback func(deviceID string)
+
 // Hub maintains the set of active clients and broadcasts messages to them.
 type Hub struct {
 	clients    map[string]*Client // deviceID -> Client
@@ -20,7 +30,10 @@ type Hub struct {
 	register   chan *Client
 	unregister chan *Client
 
-	messageHandler MessageHandler
+	messageHandler     MessageHandler
+	heartbeatCallback  HeartbeatCallback
+	disconnectCallback DisconnectCallback
+	db                 *gorm.DB
 }
 
 // NewHub creates a new Hub instance.
@@ -30,6 +43,16 @@ func NewHub() *Hub {
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 	}
+}
+
+// SetDB sets the database connection for heartbeat tracking.
+func (h *Hub) SetDB(db *gorm.DB) {
+	h.db = db
+}
+
+// SetDisconnectCallback sets the callback for device disconnect events.
+func (h *Hub) SetDisconnectCallback(cb DisconnectCallback) {
+	h.disconnectCallback = cb
 }
 
 // SetMessageHandler sets the handler for incoming messages from devices.
@@ -57,6 +80,23 @@ func (h *Hub) Run() {
 			count := len(h.clients)
 			h.mu.Unlock()
 			slog.Info("device disconnected", "device_id", client.deviceID, "online_devices", count)
+
+			// Notify disconnect callback (e.g., Gateway to clean up Redis)
+			if h.disconnectCallback != nil {
+				go h.disconnectCallback(client.deviceID)
+			}
+
+			// Update DB status to offline when last connection for this device closes
+			if h.db != nil {
+				go func(dID string) {
+					h.db.Model(&models.Device{}).
+						Where("id = ?", dID).
+						Updates(map[string]interface{}{
+							"status": models.StatusOffline,
+						})
+					slog.Info("device marked offline in DB", "device_id", dID)
+				}(client.deviceID)
+			}
 		}
 	}
 }
