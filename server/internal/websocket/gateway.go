@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"os"
 	"sync"
 	"time"
 
@@ -27,9 +29,62 @@ const (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
-	CheckOrigin: func(r *http.Request) bool {
+	CheckOrigin:     checkAllowedOrigin,
+}
+
+func checkAllowedOrigin(r *http.Request) bool {
+	allowed := os.Getenv("CORS_ORIGINS")
+	if allowed == "" {
+		return false
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
 		return true
-	},
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	for _, a := range stringsSplit(allowed, ",") {
+		a = stringsTrim(a)
+		if a == "" {
+			continue
+		}
+		au, err := url.Parse(a)
+		if err != nil {
+			continue
+		}
+		if au.Host == u.Host {
+			return true
+		}
+	}
+	return false
+}
+
+func stringsSplit(s, sep string) []string {
+	result := []string{}
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i:i+len(sep)] == sep {
+			result = append(result, s[start:i])
+			start = i + len(sep)
+			i += len(sep) - 1
+		}
+	}
+	result = append(result, s[start:])
+	return result
+}
+
+func stringsTrim(s string) string {
+	i := 0
+	for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r') {
+		i++
+	}
+	j := len(s)
+	for j > i && (s[j-1] == ' ' || s[j-1] == '\t' || s[j-1] == '\n' || s[j-1] == '\r') {
+		j--
+	}
+	return s[i:j]
 }
 
 // Gateway manages WebSocket connections with Redis-backed distributed state.

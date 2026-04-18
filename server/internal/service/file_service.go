@@ -79,12 +79,6 @@ var allowedFileExtensions = map[string]bool{
 	".tar":     true,
 	".gz":      true,
 	".tar.gz":  true,
-	".bin":     true,
-	".exe":     true,
-	".so":      true,
-	".dll":     true,
-	".deb":     true,
-	".rpm":     true,
 }
 
 var protectedPaths = []string{

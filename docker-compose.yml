@@ -10,12 +10,10 @@ services:
     image: postgres:15-alpine
     container_name: edge-platform-postgres
     restart: unless-stopped
-    ports:
-      - "${DB_PORT:-5432}:5432"
     environment:
       POSTGRES_DB: ${DB_NAME:-edge_platform}
       POSTGRES_USER: ${DB_USER:-edge_platform}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-edge_platform_secret}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change_me_in_production}
       TZ: Asia/Shanghai
     volumes:
       - pg_data:/var/lib/postgresql/data
@@ -35,8 +33,6 @@ services:
     image: redis:7-alpine
     container_name: edge-platform-redis
     restart: unless-stopped
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
     command: >
       redis-server
       --appendonly yes
@@ -57,7 +53,9 @@ services:
   # Web Frontend (Nginx)
   # ==========================================
   web:
-    image: nginx:alpine
+    build:
+      context: ./web
+      dockerfile: Dockerfile
     container_name: edge-platform-web
     restart: unless-stopped
     ports:
@@ -80,18 +78,19 @@ services:
   # API Backend (Go Service)
   # ==========================================
   api:
-    image: nginx:alpine  # TODO: Replace with actual Go service image after build
+    build:
+      context: ./server
+      dockerfile: Dockerfile
     container_name: edge-platform-api
     restart: unless-stopped
     env_file:
       - .env
     environment:
-      # Override localhost references to use Docker service names
       DB_HOST: postgres
       REDIS_HOST: redis
       APP_PORT: "8080"
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
     networks:
       - app-network
     depends_on:

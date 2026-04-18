@@ -86,6 +86,18 @@ func (h *DeviceHandler) RegisterDevice(c *gin.Context) {
 		return
 	}
 
+	tenantID, ok := middleware.GetTenantID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		return
+	}
+
+	userRole, _ := middleware.GetRole(c)
+	if userRole != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin role required to register devices"})
+		return
+	}
+
 	req.Name = strings.TrimSpace(req.Name)
 
 	plainToken := devpkg.GenerateAgentToken()
@@ -97,7 +109,7 @@ func (h *DeviceHandler) RegisterDevice(c *gin.Context) {
 		Arch:       req.Arch,
 		Status:     models.StatusOffline,
 		AgentToken: hashedToken,
-		TenantID:   "00000000-0000-0000-0000-000000000000",
+		TenantID:   tenantID,
 	}
 
 	if err := h.db.Create(&device).Error; err != nil {

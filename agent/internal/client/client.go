@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -65,6 +66,16 @@ func New(cfg *config.Config, log *logger.Logger) *Client {
 }
 
 func (c *Client) Connect(ctx context.Context) error {
+	if !strings.HasPrefix(c.cfg.ServerURL, "wss://") {
+		return fmt.Errorf("insecure connection: server URL must use wss:// protocol")
+	}
+	if c.cfg.AgentToken == "" {
+		return fmt.Errorf("AGENT_TOKEN is required but not set")
+	}
+	if c.cfg.DeviceID == "" {
+		return fmt.Errorf("DEVICE_ID is required but not set")
+	}
+
 	c.ctx, c.cancel = context.WithCancel(ctx)
 	return c.connectWithRetry()
 }

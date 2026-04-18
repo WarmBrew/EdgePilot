@@ -67,6 +67,16 @@ func main() {
 
 	r := gin.Default()
 
+	r.Use(middleware.SecurityHeaders())
+	r.Use(middleware.CORS())
+
+	if !cfg.App.Debug {
+		r.Use(middleware.HTTPSEnforcement())
+	}
+
+	r.Use(middleware.RequestSizeLimiter(10 * 1024 * 1024))
+	r.Use(middleware.SanitizeRequests())
+
 	if cfg.Audit.Enabled {
 		r.Use(middleware.AuditMiddleware(&middleware.AuditMiddlewareOptions{
 			AuditService: auditService,

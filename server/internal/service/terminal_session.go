@@ -65,8 +65,14 @@ func (s *TerminalSessionService) CreateSession(ctx context.Context, userID, devi
 		return nil, fmt.Errorf("device %s is not online", deviceID)
 	}
 
+	var device models.Device
+	if err := s.db.Select("id", "tenant_id").Where("id = ?", deviceID).First(&device).Error; err != nil {
+		return nil, fmt.Errorf("device not found: %w", err)
+	}
+
 	now := time.Now()
 	session := models.TerminalSession{
+		TenantID:  device.TenantID,
 		DeviceID:  deviceID,
 		UserID:    userID,
 		Status:    models.SessionPending,
@@ -242,6 +248,7 @@ func (s *TerminalSessionService) GetSession(sessionID string) (*models.TerminalS
 }
 
 type ListSessionsFilter struct {
+	TenantID string
 	UserID   string
 	DeviceID string
 	Status   string
@@ -271,6 +278,9 @@ func (s *TerminalSessionService) ListSessions(ctx context.Context, filter ListSe
 		Preload("Device").
 		Preload("User")
 
+	if filter.TenantID != "" {
+		query = query.Where("tenant_id = ?", filter.TenantID)
+	}
 	if filter.UserID != "" {
 		query = query.Where("user_id = ?", filter.UserID)
 	}

@@ -176,6 +176,8 @@ func extractBearerToken(authHeader string) string {
 }
 
 // isTokenBlacklisted checks if the token exists in the Redis blacklist.
+// Uses fail-close strategy: if Redis is unavailable, the request is denied
+// to prevent use of revoked tokens during security incidents.
 func isTokenBlacklisted(c *gin.Context, tokenString string) bool {
 	client := pkgRedis.GetClient()
 	reqCtx := c.Request.Context()
@@ -185,12 +187,12 @@ func isTokenBlacklisted(c *gin.Context, tokenString string) bool {
 
 	exists, err := client.Raw().Exists(ctx, key).Result()
 	if err != nil {
-		slog.Error("isTokenBlacklisted: redis check failed",
+		slog.Error("isTokenBlacklisted: redis check failed, denying request (fail-close)",
 			"error", err,
 		)
-		// On Redis failure, we allow the request to proceed
-		// (fail-open rather than fail-closed for availability)
-		return false
+		// Fail-close: if Redis is unavailable, deny the request
+		// to prevent use of potentially revoked tokens
+		return true
 	}
 	return exists > 0
 }
