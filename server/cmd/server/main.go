@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edge-platform/server/internal/api/middleware"
 	"github.com/edge-platform/server/internal/api/routes"
 	"github.com/edge-platform/server/internal/config"
 	"github.com/edge-platform/server/internal/domain/models"
@@ -56,7 +57,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	auditService := service.NewAuditService(db, redisClient, service.AuditConfig{
+		QueueSize: cfg.Audit.QueueSize,
+		BatchSize: cfg.Audit.BatchSize,
+	})
+	if cfg.Audit.Enabled {
+		auditService.Start(ctx)
+	}
+
 	r := gin.Default()
+
+	if cfg.Audit.Enabled {
+		r.Use(middleware.AuditMiddleware(&middleware.AuditMiddlewareOptions{
+			AuditService: auditService,
+			SkipPaths:    []string{"/health", "/metrics"},
+		}))
+	}
 
 	hub := websocket.NewHub()
 	gw := websocket.NewGateway(redisClient.Raw(), hub)
@@ -89,6 +105,9 @@ func main() {
 	slog.Info("shutting down server...")
 	cancel()
 	heartbeatWorker.Stop()
+	if cfg.Audit.Enabled {
+		auditService.Stop()
+	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
