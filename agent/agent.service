@@ -1,0 +1,22 @@
+[Unit]
+Description=Robot Remote Maintenance Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/robot-agent
+WorkingDirectory=/etc/robot-agent
+EnvironmentFile=/etc/robot-agent/agent.env
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+# Security hardening
+NoNewPrivileges=false
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/tmp /home
+
+[Install]
+WantedBy=multi-user.target
