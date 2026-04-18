@@ -75,7 +75,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, h, type Component } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -90,10 +90,28 @@ const userInitial = computed(() => {
   return email.charAt(0).toUpperCase()
 })
 
-const navItems = [
-  { path: '/dashboard', label: 'Dashboard', icon: 'IconDashboard', role: '' },
-  { path: '/devices', label: 'Devices', icon: 'IconDevices', role: '' },
-  { path: '/audit', label: 'Audit Logs', icon: 'IconAudit', role: 'operator' },
+const IconDashboard = () => h('svg', { viewBox: '0 0 20 20', fill: 'currentColor', class: 'nav-icon' }, [
+  h('path', { d: 'M3 3a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V3zm8 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V3zM3 11a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z' })
+])
+const IconDevices = () => h('svg', { viewBox: '0 0 20 20', fill: 'currentColor', class: 'nav-icon' }, [
+  h('path', { d: 'M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 5a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V9zm0 5a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z' })
+])
+const IconAudit = () => h('svg', { viewBox: '0 0 20 20', fill: 'currentColor', class: 'nav-icon' }, [
+  h('path', { 'fill-rule': 'evenodd', d: 'M7 2a2 2 0 00-2 2v12a2 2 0 002 2h6a2 2 0 002-2V4a2 2 0 00-2-2H7zm3 14a1 1 0 100-2 1 1 0 000 2z', 'clip-rule': 'evenodd' }),
+  h('path', { d: 'M5 5a2 2 0 012-2h6a2 2 0 012 2v12a2 2 0 01-2 2H7a2 2 0 01-2-2V5zm8 1H7v10h6V6z' })
+])
+
+interface NavItem {
+  path: string
+  label: string
+  icon: Component
+  role: string
+}
+
+const navItems: NavItem[] = [
+  { path: '/dashboard', label: 'Dashboard', icon: IconDashboard, role: '' },
+  { path: '/devices', label: 'Devices', icon: IconDevices, role: '' },
+  { path: '/audit', label: 'Audit Logs', icon: IconAudit, role: 'operator' },
 ]
 
 const hasRole = (requiredRole: string) => {

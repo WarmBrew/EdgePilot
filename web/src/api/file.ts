@@ -37,4 +37,10 @@ export const fileApi = {
   getFileInfo: (deviceId: string, filePath: string): Promise<FileInfo> => {
     return apiClient.get(`/devices/${deviceId}/files/${encodeURIComponent(filePath)}/info`)
   },
+
+  uploadFile: (deviceId: string, formData: FormData): Promise<{ success: boolean }> => {
+    return apiClient.post(`/devices/${deviceId}/files/upload`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
 }

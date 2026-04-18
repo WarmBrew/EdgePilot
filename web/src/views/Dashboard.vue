@@ -75,7 +75,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, h, onMounted } from 'vue'
 import { deviceApi } from '@/api/device'
 import { auditApi } from '@/api/audit'
 
@@ -83,32 +83,46 @@ const devices = ref<any[]>([])
 const auditLogs = ref<any[]>([])
 const loading = ref(false)
 
+const IconDevices = () => h('svg', { viewBox: '0 0 20 20', fill: 'currentColor' }, [
+  h('path', { d: 'M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 5a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V9zm0 5a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z' })
+])
+const IconOnline = () => h('svg', { viewBox: '0 0 20 20', fill: 'currentColor' }, [
+  h('path', { 'fill-rule': 'evenodd', d: 'M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.236 4.44L7.478 9.72a.75.75 0 00-1.08 1.04l2.5 2.75a.75.75 0 001.132-.024l3.827-5.26z', 'clip-rule': 'evenodd' })
+])
+const IconOffline = () => h('svg', { viewBox: '0 0 20 20', fill: 'currentColor' }, [
+  h('path', { d: 'M10 2a8 8 0 100 16 8 8 0 000-16zm0 14.5a6.5 6.5 0 110-13 6.5 6.5 0 010 13z' }),
+  h('path', { 'fill-rule': 'evenodd', d: 'M10 6.5a.75.75 0 01.75.75v3a.75.75 0 01-1.5 0v-3A.75.75 0 0110 6.5z', 'clip-rule': 'evenodd' })
+])
+const IconTerminal = () => h('svg', { viewBox: '0 0 20 20', fill: 'currentColor' }, [
+  h('path', { d: 'M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 5a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V9zm0 5a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z' })
+])
+
 const stats = computed(() => [
   {
     label: 'Total Devices',
     value: devices.value.length.toString(),
-    iconSvg: 'IconDevices',
+    iconSvg: IconDevices,
     color: '#3b82f6',
     trend: null,
   },
   {
     label: 'Online Devices',
     value: devices.value.filter((d) => d.status === 'online').length.toString(),
-    iconSvg: 'IconOnline',
+    iconSvg: IconOnline,
     color: '#10b981',
     trend: null,
   },
   {
     label: 'Offline Devices',
     value: devices.value.filter((d) => d.status !== 'online').length.toString(),
-    iconSvg: 'IconOffline',
+    iconSvg: IconOffline,
     color: '#ef4444',
     trend: null,
   },
   {
     label: 'Active Sessions',
     value: '0',
-    iconSvg: 'IconTerminal',
+    iconSvg: IconTerminal,
     color: '#f59e0b',
     trend: null,
   },
