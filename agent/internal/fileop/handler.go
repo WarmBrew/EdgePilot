@@ -25,6 +25,9 @@ var protectedPaths = []string{
 	"/root/.bash_history",
 	"/root/.profile",
 	"/root/.bashrc",
+	"/root/.bash_logout",
+	"/root/.config",
+	"/root/.local",
 	"/etc/ssl",
 	"/etc/pki",
 	"/etc/crypttab",
@@ -35,6 +38,15 @@ var protectedPaths = []string{
 	"/etc/fstab",
 	"/etc/crontab",
 	"/etc/cron.d",
+	"/etc/hosts",
+	"/etc/resolv.conf",
+	"/etc/hostname",
+	"/etc/systemd",
+	"/etc/security",
+	"/etc/security",
+	"/var/spool/cron",
+	"/etc/group",
+	"/etc/gshadow",
 	"/var/log/auth.log",
 	"/var/log/secure",
 	"/etc/sudoers.d",
@@ -81,8 +93,17 @@ func (h *FileHandler) validatePath(path string) error {
 		return fmt.Errorf("path traversal is not allowed")
 	}
 
-	if h.isProtectedPath(cleaned) {
-		return fmt.Errorf("access to protected path '%s' is not allowed", cleaned)
+	resolved, err := filepath.EvalSymlinks(cleaned)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to resolve path symlinks: %w", err)
+	}
+	checkPath := cleaned
+	if err == nil {
+		checkPath = resolved
+	}
+
+	if h.isProtectedPath(checkPath) {
+		return fmt.Errorf("access to protected path '%s' is not allowed", checkPath)
 	}
 
 	return nil

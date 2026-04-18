@@ -16,6 +16,7 @@ var ValidSessionStatuses = []string{SessionPending, SessionActive, SessionClosed
 // TerminalSession represents an active or closed terminal session
 type TerminalSession struct {
 	ID        string     `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	TenantID  string     `gorm:"type:uuid;not null;index" json:"tenant_id"`
 	DeviceID  string     `gorm:"type:uuid;not null;index" json:"device_id"`
 	UserID    string     `gorm:"type:uuid;not null;index" json:"user_id"`
 	PtyPath   string     `gorm:"size:255" json:"pty_path,omitempty"`

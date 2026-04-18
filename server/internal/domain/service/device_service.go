@@ -270,6 +270,9 @@ func (s *DeviceService) BatchOperation(ctx context.Context, tenantID string, dev
 
 	switch action {
 	case "delete":
+		if len(deviceIDs) > 100 {
+			return nil, fmt.Errorf("batch operation limited to 100 devices at a time")
+		}
 		for _, id := range deviceIDs {
 			if err := s.DeleteDevice(ctx, tenantID, id, userID); err != nil {
 				result.Failed++

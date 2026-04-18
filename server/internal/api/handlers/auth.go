@@ -216,8 +216,24 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	}
 
 	refreshKey := fmt.Sprintf("refresh_token:%s:%s", claims.UserID, refreshToken)
-	val, err := h.redis.Raw().Get(c, refreshKey).Result()
-	if err != nil || val != "1" {
+
+	// Use Redis Lua script for atomic check-delete-set to prevent race conditions
+	luaScript := `
+		if redis.call("GET", KEYS[1]) == ARGV[1] then
+			redis.call("DEL", KEYS[1])
+			redis.call("SET", KEYS[2], "1", "EX", ARGV[2])
+			return 1
+		else
+			return 0
+		end
+	`
+
+	refreshExpiry := 7 * 24 * 3600 // 7 days in seconds
+	newRefreshTokenVal := auth.GenerateRefreshTokenRaw(claims.UserID, claims.TenantID, claims.Role, claims.Email, 7*24*time.Hour)
+	newRefreshKey := fmt.Sprintf("refresh_token:%s:%s", claims.UserID, newRefreshTokenVal)
+
+	result, err := h.redis.Raw().Eval(c, luaScript, []string{refreshKey, newRefreshKey}, "1", newRefreshKey, refreshExpiry).Int()
+	if err != nil || result != 1 {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token expired or revoked"})
 		return
 	}
@@ -228,22 +244,8 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	newRefreshToken, err := auth.GenerateRefreshToken(claims.UserID, claims.TenantID, claims.Role, claims.Email)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
-		return
-	}
-
-	_ = h.redis.Raw().Del(c, refreshKey).Err()
-
-	newRefreshKey := fmt.Sprintf("refresh_token:%s:%s", claims.UserID, newRefreshToken)
-	if err := h.redis.Raw().Set(c, newRefreshKey, "1", 7*24*time.Hour).Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
-		return
-	}
-
 	c.SetSameSite(http.SameSiteStrictMode)
-	c.SetCookie("refresh_token", newRefreshToken, int((7*24*time.Hour)/time.Second), "/", "", true, true)
+	c.SetCookie("refresh_token", newRefreshTokenVal, refreshExpiry, "/", "", true, true)
 
 	c.JSON(http.StatusOK, gin.H{"access_token": newAccessToken})
 }

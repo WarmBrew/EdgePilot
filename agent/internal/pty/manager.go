@@ -8,7 +8,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
+	"syscall"
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
@@ -16,6 +18,32 @@ import (
 )
 
 const maxSessions = 3
+
+var allowedShells = map[string]bool{
+	"/bin/bash":     true,
+	"/bin/sh":       true,
+	"/bin/zsh":      true,
+	"/usr/bin/bash": true,
+	"/usr/bin/sh":   true,
+	"/usr/bin/zsh":  true,
+}
+
+func validateShell(shell string) (string, error) {
+	if shell == "" {
+		shell = "/bin/bash"
+	}
+	resolved, err := filepath.EvalSymlinks(shell)
+	if err != nil {
+		return "", fmt.Errorf("shell '%s' not found: %w", shell, err)
+	}
+	if !allowedShells[resolved] {
+		return "", fmt.Errorf("shell '%s' (resolved to '%s') is not allowed", shell, resolved)
+	}
+	if _, err := exec.LookPath(resolved); err != nil {
+		return "", fmt.Errorf("shell '%s' not executable: %w", resolved, err)
+	}
+	return resolved, nil
+}
 
 type PtyMessageWriter interface {
 	WriteJSON(v interface{}) error
@@ -84,9 +112,10 @@ func (m *PTYManager) CreateSession(payload json.RawMessage) error {
 	shell := req.Shell
 	if shell == "" {
 		shell = "/bin/bash"
-		if _, err := exec.LookPath(shell); err != nil {
-			shell = "/bin/sh"
-		}
+	}
+	resolvedShell, err := validateShell(shell)
+	if err != nil {
+		return fmt.Errorf("invalid shell: %w", err)
 	}
 
 	cols := req.Cols
@@ -99,7 +128,11 @@ func (m *PTYManager) CreateSession(payload json.RawMessage) error {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, shell)
+	cmd := exec.CommandContext(ctx, resolvedShell)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Pdeathsig: syscall.SIGKILL,
+		Setpgid:   true,
+	}
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {

@@ -42,6 +42,27 @@ func GenerateAccessToken(userID, tenantID, role, email string) (string, error) {
 	return token.SignedString([]byte(cfg.JWT.Secret))
 }
 
+func GenerateRefreshTokenRaw(userID, tenantID, role, email string, expire time.Duration) string {
+	cfg := config.Get()
+
+	claims := &Claims{
+		UserID:   userID,
+		TenantID: tenantID,
+		Role:     role,
+		Email:    email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expire)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    cfg.App.Name,
+			Subject:   userID,
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, _ := token.SignedString([]byte(cfg.JWT.Secret))
+	return signed
+}
+
 func GenerateRefreshToken(userID, tenantID, role, email string) (string, error) {
 	cfg := config.Get()
 

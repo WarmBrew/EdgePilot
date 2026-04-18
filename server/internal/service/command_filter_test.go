@@ -166,9 +166,11 @@ func TestSensitiveCommandsList(t *testing.T) {
 	}
 
 	expectedCommands := []string{
-		"sudo", "reboot", "shutdown", "systemctl restart", "systemctl stop",
-		"service .* restart", "kill -9", "pkill", "iptables", "ufw",
-		"chmod 777", "chown root",
+		"\\bsudo\\b", "\\breboot\\b", "\\bshutdown\\b",
+		"systemctl\\s+(restart|stop|disable|mask|kill)",
+		"service\\s+.*\\s+(restart|stop)", "kill\\s+-9",
+		"\\bpkill\\b", "\\biptables\\b", "\\bufw\\b",
+		"chmod\\s+[0-7]?77[7]", "\\bchown\\s+root",
 	}
 
 	for _, expected := range expectedCommands {

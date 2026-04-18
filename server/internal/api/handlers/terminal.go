@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"os"
 	"sync"
 	"time"
 
@@ -39,9 +41,62 @@ const (
 var termUpgrader = gorillaws.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
-	CheckOrigin: func(r *http.Request) bool {
+	CheckOrigin:     checkTerminalAllowedOrigin,
+}
+
+func checkTerminalAllowedOrigin(r *http.Request) bool {
+	allowed := os.Getenv("CORS_ORIGINS")
+	if allowed == "" {
+		return false
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
 		return true
-	},
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	for _, a := range stringsSplit(allowed, ",") {
+		a = stringsTrimWs(a)
+		if a == "" {
+			continue
+		}
+		au, err := url.Parse(a)
+		if err != nil {
+			continue
+		}
+		if au.Host == u.Host {
+			return true
+		}
+	}
+	return false
+}
+
+func stringsSplit(s, sep string) []string {
+	result := []string{}
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i:i+len(sep)] == sep {
+			result = append(result, s[start:i])
+			start = i + len(sep)
+			i += len(sep) - 1
+		}
+	}
+	result = append(result, s[start:])
+	return result
+}
+
+func stringsTrimWs(s string) string {
+	i := 0
+	for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r') {
+		i++
+	}
+	j := len(s)
+	for j > i && (s[j-1] == ' ' || s[j-1] == '\t' || s[j-1] == '\n' || s[j-1] == '\r') {
+		j--
+	}
+	return s[i:j]
 }
 
 // TerminalHandler manages WebSocket terminal sessions for browsers.
@@ -652,23 +707,31 @@ func (h *TerminalHandler) closeSession(bc *browserConn) {
 func (h *TerminalHandler) checkSessionLimit(deviceID string) error {
 	ctx := context.Background()
 	pattern := redisTermActivePrefix + "*"
-	keys, err := h.redis.Raw().Keys(ctx, pattern).Result()
-	if err != nil {
-		slog.Warn("terminal ws: failed to check session limit",
-			"device_id", deviceID, "error", err)
-		return nil
-	}
+	var activeCount int
+	var cursor uint64
 
-	activeCount := 0
-	for _, key := range keys {
-		val, err := h.redis.Raw().Get(ctx, key).Result()
-		if err == nil && val == deviceID {
-			activeCount++
+	for {
+		keys, nextCursor, err := h.redis.Raw().Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			slog.Warn("terminal ws: failed to check session limit",
+				"device_id", deviceID, "error", err)
+			return nil
 		}
-	}
 
-	if activeCount >= maxTerminalPerDevice {
-		return fmt.Errorf("too many active terminal sessions on this device (max %d)", maxTerminalPerDevice)
+		for _, key := range keys {
+			val, err := h.redis.Raw().Get(ctx, key).Result()
+			if err == nil && val == deviceID {
+				activeCount++
+				if activeCount >= maxTerminalPerDevice {
+					return fmt.Errorf("too many active terminal sessions on this device (max %d)", maxTerminalPerDevice)
+				}
+			}
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
 	}
 
 	return nil
