@@ -83,6 +83,7 @@ func main() {
 	routes.SetupGroupRoutes(r, db)
 	routes.SetupTerminalRoutes(r, db, redisClient, gw)
 	routes.SetupFileRoutes(r, db, redisClient, gw)
+	routes.SetupAuditRoutes(r, db, auditService)
 
 	addr := fmt.Sprintf(":%d", cfg.App.Port)
 	srv := &http.Server{
