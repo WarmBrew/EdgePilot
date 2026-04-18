@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/robot-remote-maint/agent/internal/config"
+	"github.com/robot-remote-maint/agent/internal/pty"
 	"github.com/robot-remote-maint/agent/pkg/logger"
 )
 
@@ -45,6 +47,8 @@ type Client struct {
 
 	retries    int
 	maxRetries int
+
+	ptyMgr *pty.PTYManager
 }
 
 func New(cfg *config.Config, log *logger.Logger) *Client {
@@ -53,6 +57,7 @@ func New(cfg *config.Config, log *logger.Logger) *Client {
 		log:        log,
 		state:      StateDisconnected,
 		maxRetries: 5,
+		ptyMgr:     pty.NewManager(log),
 	}
 }
 
@@ -92,6 +97,10 @@ func (c *Client) connectWithRetry() error {
 		c.retries = 0
 		c.setState(StateAuthenticated)
 		c.log.Info("Successfully connected and authenticated")
+
+		c.mu.Lock()
+		c.ptyMgr.SetConnection(c.conn)
+		c.mu.Unlock()
 
 		go c.sendHeartbeat()
 		go c.messageLoop()
@@ -145,6 +154,8 @@ func (c *Client) Close() error {
 		c.cancel()
 	}
 
+	c.ptyMgr.CloseAll()
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -186,7 +197,8 @@ func (c *Client) messageLoop() {
 
 func (c *Client) handleMessage(msg []byte) {
 	var base struct {
-		Type string `json:"type"`
+		Type    string          `json:"type"`
+		Payload json.RawMessage `json:"payload"`
 	}
 	if err := json.Unmarshal(msg, &base); err != nil {
 		c.log.Error("Failed to parse message", "error", err, "raw", string(msg))
@@ -199,13 +211,13 @@ func (c *Client) handleMessage(msg []byte) {
 	case "heartbeat_ack":
 		c.log.Debug("Received heartbeat ack")
 	case "pty_create":
-		c.log.Info("Received pty_create command")
+		c.handlePTYCreate(base.Payload)
 	case "pty_input":
-		c.log.Info("Received pty_input command")
+		c.handlePTYInput(base.Payload)
 	case "pty_resize":
-		c.log.Info("Received pty_resize command")
+		c.handlePTYResize(base.Payload)
 	case "pty_close":
-		c.log.Info("Received pty_close command")
+		c.handlePTYClose(base.Payload)
 	case "file_read":
 		c.log.Info("Received file_read command")
 	case "file_write":
@@ -262,4 +274,52 @@ func (c *Client) calculateBackoff() time.Duration {
 		return maxBackoff
 	}
 	return backoff
+}
+
+func (c *Client) handlePTYCreate(payload json.RawMessage) {
+	if err := c.ptyMgr.CreateSession(payload); err != nil {
+		c.log.Error("Failed to create PTY session", "error", err)
+	}
+}
+
+func (c *Client) handlePTYInput(payload json.RawMessage) {
+	var req pty.WritePayload
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.log.Error("Failed to parse pty_input payload", "error", err)
+		return
+	}
+
+	data, err := base64.StdEncoding.DecodeString(req.Data)
+	if err != nil {
+		c.log.Error("Failed to decode base64 input", "error", err)
+		return
+	}
+
+	if err := c.ptyMgr.WriteToPTY(req.SessionID, data); err != nil {
+		c.log.Error("Failed to write to PTY", "error", err, "session_id", req.SessionID)
+	}
+}
+
+func (c *Client) handlePTYResize(payload json.RawMessage) {
+	var req pty.ResizePayload
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.log.Error("Failed to parse pty_resize payload", "error", err)
+		return
+	}
+
+	if err := c.ptyMgr.ResizePTY(req.SessionID, req.Cols, req.Rows); err != nil {
+		c.log.Error("Failed to resize PTY", "error", err, "session_id", req.SessionID)
+	}
+}
+
+func (c *Client) handlePTYClose(payload json.RawMessage) {
+	var req pty.ClosePayload
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.log.Error("Failed to parse pty_close payload", "error", err)
+		return
+	}
+
+	if err := c.ptyMgr.CloseSession(req.SessionID); err != nil {
+		c.log.Error("Failed to close PTY session", "error", err, "session_id", req.SessionID)
+	}
 }
