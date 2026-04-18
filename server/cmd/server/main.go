@@ -14,6 +14,7 @@ import (
 	"github.com/edge-platform/server/internal/api/routes"
 	"github.com/edge-platform/server/internal/config"
 	"github.com/edge-platform/server/internal/domain/models"
+	"github.com/edge-platform/server/internal/pkg/auth"
 	pkgRedis "github.com/edge-platform/server/internal/pkg/redis"
 	"github.com/edge-platform/server/internal/service"
 	"github.com/edge-platform/server/internal/websocket"
@@ -46,6 +47,41 @@ func main() {
 	if err := models.InitializeDatabase(db); err != nil {
 		slog.Error("failed to run database migration", "error", err)
 		os.Exit(1)
+	}
+
+	// Create default admin user if not exists
+	defaultEmail := "admin@edgepilot.com"
+	var adminCount int64
+	db.Model(&models.User{}).Where("email = ?", defaultEmail).Count(&adminCount)
+	if adminCount == 0 {
+		// Create default tenant if not exists
+		var defaultTenant models.Tenant
+		if err := db.Where("name = ?", "Default").First(&defaultTenant).Error; err != nil {
+			defaultTenant = models.Tenant{Name: "Default", Plan: "free"}
+			if err := db.Create(&defaultTenant).Error; err != nil {
+				slog.Error("failed to create default tenant", "error", err)
+				os.Exit(1)
+			}
+		}
+
+		hashedPassword, err := auth.HashPassword("admin@EdgePilot.com")
+		if err != nil {
+			slog.Error("failed to hash admin password", "error", err)
+			os.Exit(1)
+		}
+
+		adminUser := models.User{
+			Email:              defaultEmail,
+			Password:           hashedPassword,
+			Role:               models.RoleAdmin,
+			TenantID:           defaultTenant.ID,
+			MustChangePassword: true,
+		}
+		if err := db.Create(&adminUser).Error; err != nil {
+			slog.Error("failed to create default admin user", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("default admin user created", "email", defaultEmail)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

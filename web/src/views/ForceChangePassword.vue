@@ -1,54 +1,34 @@
 <template>
-  <div class="login-page">
-    <div class="login-bg">
-      <div class="login-bg__grid"></div>
+  <div class="change-password-page">
+    <div class="change-password-bg">
+      <div class="change-password-bg__grid"></div>
     </div>
-    <div class="login-container">
-      <div class="login-card">
-        <div class="login-header">
-          <div class="login-logo">
+    <div class="change-password-container">
+      <div class="change-password-card">
+        <div class="change-password-header">
+          <div class="change-password-logo">
             <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
               <rect x="2" y="2" width="36" height="36" rx="8" fill="#3b82f6"/>
               <path d="M12 20L18 26L28 14" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </div>
-          <h1>EdgePilot</h1>
-          <p>Remote Maintenance & Management Platform</p>
+          <h1>Change Password</h1>
+          <p>For security, you must change your password on first login</p>
         </div>
 
-        <form class="login-form" @submit.prevent="handleLogin">
+        <form class="change-password-form" @submit.prevent="handleChangePassword">
           <div class="form-field">
-            <label for="email" class="form-label">Email</label>
-            <div class="form-input-wrapper">
-              <svg class="form-icon" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/>
-                <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/>
-              </svg>
-              <input
-                id="email"
-                v-model="form.email"
-                type="email"
-                class="form-input"
-                placeholder="your@email.com"
-                autocomplete="email"
-                required
-              />
-            </div>
-          </div>
-
-          <div class="form-field">
-            <label for="password" class="form-label">Password</label>
+            <label for="new-password" class="form-label">New Password</label>
             <div class="form-input-wrapper">
               <svg class="form-icon" viewBox="0 0 20 20" fill="currentColor">
                 <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/>
               </svg>
               <input
-                id="password"
-                v-model="form.password"
+                id="new-password"
+                v-model="form.newPassword"
                 :type="showPassword ? 'text' : 'password'"
                 class="form-input"
-                placeholder="Enter your password"
-                autocomplete="current-password"
+                placeholder="Enter new password"
                 required
               />
               <button type="button" class="toggle-password" @click="showPassword = !showPassword">
@@ -64,11 +44,28 @@
             </div>
           </div>
 
+          <div class="form-field">
+            <label for="confirm-password" class="form-label">Confirm Password</label>
+            <div class="form-input-wrapper">
+              <svg class="form-icon" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/>
+              </svg>
+              <input
+                id="confirm-password"
+                v-model="form.confirmPassword"
+                :type="showPassword ? 'text' : 'password'"
+                class="form-input"
+                placeholder="Confirm new password"
+                required
+              />
+            </div>
+          </div>
+
           <button type="submit" class="btn-submit" :disabled="isLoading">
             <svg v-if="isLoading" class="spinner" viewBox="0 0 24 24" fill="none">
               <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-dasharray="31.4" stroke-dashoffset="10"/>
             </svg>
-            {{ isLoading ? 'Signing in...' : 'Sign In' }}
+            {{ isLoading ? 'Updating...' : 'Update Password' }}
           </button>
         </form>
 
@@ -78,6 +75,13 @@
           </svg>
           <span>{{ errorMsg }}</span>
         </div>
+
+        <div v-if="successMsg" class="success-alert">
+          <svg viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+          </svg>
+          <span>{{ successMsg }}</span>
+        </div>
       </div>
     </div>
   </div>
@@ -85,36 +89,46 @@
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
-const route = useRoute()
 const authStore = useAuthStore()
 
 const isLoading = ref(false)
 const errorMsg = ref('')
+const successMsg = ref('')
 const showPassword = ref(false)
 
 const form = reactive({
-  email: '',
-  password: '',
+  newPassword: '',
+  confirmPassword: '',
 })
 
-async function handleLogin() {
+async function handleChangePassword() {
   errorMsg.value = ''
+  successMsg.value = ''
+
+  if (form.newPassword !== form.confirmPassword) {
+    errorMsg.value = 'Passwords do not match'
+    return
+  }
+
+  if (form.newPassword.length < 8) {
+    errorMsg.value = 'Password must be at least 8 characters'
+    return
+  }
+
   isLoading.value = true
 
   try {
-    const user = await authStore.login(form.email, form.password)
-    if (user.must_change_password) {
-      router.push({ name: 'ForceChangePassword' })
-    } else {
-      const redirect = (route.query.redirect as string) || '/dashboard'
-      router.push(redirect)
-    }
+    await authStore.forceChangePassword(form.newPassword)
+    successMsg.value = 'Password updated successfully! Redirecting...'
+    setTimeout(() => {
+      router.push('/dashboard')
+    }, 1500)
   } catch (err: any) {
-    errorMsg.value = err.response?.data?.error || 'Invalid email or password'
+    errorMsg.value = err.response?.data?.error || 'Failed to update password'
   } finally {
     isLoading.value = false
   }
@@ -122,7 +136,7 @@ async function handleLogin() {
 </script>
 
 <style scoped>
-.login-page {
+.change-password-page {
   min-height: 100vh;
   display: flex;
   align-items: center;
@@ -132,7 +146,7 @@ async function handleLogin() {
   overflow: hidden;
 }
 
-.login-bg {
+.change-password-bg {
   position: absolute;
   inset: 0;
   background:
@@ -141,7 +155,7 @@ async function handleLogin() {
     var(--bg-primary);
 }
 
-.login-bg__grid {
+.change-password-bg__grid {
   position: absolute;
   inset: 0;
   background-image:
@@ -150,7 +164,7 @@ async function handleLogin() {
   background-size: 60px 60px;
 }
 
-.login-container {
+.change-password-container {
   position: relative;
   z-index: 1;
   width: 100%;
@@ -158,7 +172,7 @@ async function handleLogin() {
   padding: 20px;
 }
 
-.login-card {
+.change-password-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-xl);
@@ -166,23 +180,23 @@ async function handleLogin() {
   box-shadow: var(--shadow-xl);
 }
 
-.login-header {
+.change-password-header {
   text-align: center;
   margin-bottom: 32px;
 }
 
-.login-logo {
+.change-password-logo {
   width: 56px;
   height: 56px;
   margin: 0 auto 16px;
 }
 
-.login-logo svg {
+.change-password-logo svg {
   width: 100%;
   height: 100%;
 }
 
-.login-header h1 {
+.change-password-header h1 {
   font-size: 24px;
   font-weight: 700;
   color: var(--text-primary);
@@ -190,12 +204,12 @@ async function handleLogin() {
   letter-spacing: -0.5px;
 }
 
-.login-header p {
+.change-password-header p {
   font-size: 14px;
   color: var(--text-secondary);
 }
 
-.login-form {
+.change-password-form {
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -323,6 +337,25 @@ async function handleLogin() {
 }
 
 .error-alert svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.success-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--accent-success);
+  font-size: 14px;
+  margin-top: 16px;
+}
+
+.success-alert svg {
   width: 18px;
   height: 18px;
   flex-shrink: 0;

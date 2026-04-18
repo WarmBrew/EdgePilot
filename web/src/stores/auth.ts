@@ -6,13 +6,14 @@ import apiClient from '@/api/client'
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(null)
   const refreshToken = ref<string | null>(null)
-  const user = ref<{ id: string; email: string; role: string; tenant_id: string } | null>(null)
+  const user = ref<{ id: string; email: string; role: string; tenant_id: string; must_change_password: boolean } | null>(null)
   const loading = ref(false)
 
   const isAuthenticated = computed(() => !!token.value)
   const isAdmin = computed(() => user.value?.role === 'admin')
   const isOperator = computed(() => user.value?.role === 'operator' || user.value?.role === 'admin')
   const isViewer = computed(() => user.value?.role === 'viewer' || isAdmin.value || isOperator.value)
+  const mustChangePassword = computed(() => user.value?.must_change_password ?? false)
 
   function setTokens(auth: { access_token: string; refresh_token: string }) {
     token.value = auth.access_token
@@ -34,6 +35,19 @@ export const useAuthStore = defineStore('auth', () => {
       const response: AuthResponse = await authApi.login({ email, password })
       setTokens(response)
       user.value = response.user
+      return response.user
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function forceChangePassword(newPassword: string) {
+    loading.value = true
+    try {
+      const response = await authApi.forceChangePassword(newPassword)
+      if (user.value) {
+        user.value.must_change_password = false
+      }
       return response
     } finally {
       loading.value = false
@@ -71,7 +85,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     token, refreshToken, user, loading,
-    isAuthenticated, isAdmin, isOperator, isViewer,
-    login, logout, refreshSession, hydrate
+    isAuthenticated, isAdmin, isOperator, isViewer, mustChangePassword,
+    login, logout, refreshSession, hydrate, forceChangePassword
   }
 })

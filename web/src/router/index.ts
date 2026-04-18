@@ -3,6 +3,7 @@ import { useAuthStore } from '@/stores/auth'
 
 const routes = [
   { path: '/login', name: 'Login', component: () => import('@/views/Login.vue') },
+  { path: '/force-change-password', name: 'ForceChangePassword', component: () => import('@/views/ForceChangePassword.vue'), meta: { requiresAuth: true } },
   {
     path: '/',
     component: () => import('@/components/layout/MainLayout.vue'),
@@ -64,6 +65,11 @@ router.beforeEach((to, from, next) => {
 
   if (to.name === 'Login' && authStore.isAuthenticated) {
     next({ path: '/dashboard' })
+    return
+  }
+
+  if (authStore.isAuthenticated && authStore.mustChangePassword && to.name !== 'ForceChangePassword') {
+    next({ name: 'ForceChangePassword' })
     return
   }
 

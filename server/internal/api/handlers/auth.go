@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edge-platform/server/internal/api/middleware"
 	"github.com/edge-platform/server/internal/domain/models"
 	"github.com/edge-platform/server/internal/pkg/auth"
 	pkgRedis "github.com/edge-platform/server/internal/pkg/redis"
@@ -80,13 +81,19 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+type ChangePasswordRequest struct {
+	OldPassword string `json:"old_password" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required,password_strength"`
+}
+
 type UserResponse struct {
-	ID        string    `json:"id"`
-	Email     string    `json:"email"`
-	Role      string    `json:"role"`
-	TenantID  string    `json:"tenant_id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID                 string    `json:"id"`
+	Email              string    `json:"email"`
+	Role               string    `json:"role"`
+	TenantID           string    `json:"tenant_id"`
+	MustChangePassword bool      `json:"must_change_password"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 type AuthResponse struct {
@@ -96,12 +103,13 @@ type AuthResponse struct {
 
 func userToResponse(user models.User) UserResponse {
 	return UserResponse{
-		ID:        user.ID,
-		Email:     user.Email,
-		Role:      user.Role,
-		TenantID:  user.TenantID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
+		ID:                 user.ID,
+		Email:              user.Email,
+		Role:               user.Role,
+		TenantID:           user.TenantID,
+		MustChangePassword: user.MustChangePassword,
+		CreatedAt:          user.CreatedAt,
+		UpdatedAt:          user.UpdatedAt,
 	}
 }
 
@@ -288,6 +296,47 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	c.SetCookie("refresh_token", "", -1, "/", "", true, true)
 
 	c.JSON(http.StatusOK, gin.H{"message": "logged out"})
+}
+
+func (h *AuthHandler) ForceChangePassword(c *gin.Context) {
+	email, _ := middleware.GetEmail(c)
+	if email == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var req struct {
+		NewPassword string `json:"new_password" binding:"required,password_strength"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + sanitizeValidationError(err)})
+		return
+	}
+
+	var user models.User
+	if err := h.db.Where("email = ?", email).First(&user).Error; err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
+		return
+	}
+
+	if !user.MustChangePassword {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password change not required"})
+		return
+	}
+
+	hashedPassword, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+
+	h.db.Model(&user).Updates(map[string]interface{}{
+		"password":             hashedPassword,
+		"must_change_password": false,
+	})
+
+	slog.Info("user changed password successfully", "email", email)
+	c.JSON(http.StatusOK, gin.H{"message": "password changed successfully"})
 }
 
 func sanitizeValidationError(err error) string {

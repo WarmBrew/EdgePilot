@@ -16,9 +16,15 @@ func SetupAuthRoutes(r *gin.Engine, db *gorm.DB, redis *pkgRedis.RedisClient) {
 
 	authGroup := r.Group("/api/v1/auth")
 	{
-		authGroup.POST("/register", middleware.RateLimiter(10, time.Hour), authHandler.Register)
 		authGroup.POST("/login", middleware.RateLimiter(20, time.Hour), authHandler.Login)
 		authGroup.POST("/refresh", authHandler.Refresh)
 		authGroup.POST("/logout", authHandler.Logout)
+	}
+
+	// JWT-protected auth routes
+	protectedAuth := r.Group("/api/v1/auth")
+	protectedAuth.Use(middleware.JWTAuth())
+	{
+		protectedAuth.POST("/change-password", authHandler.ForceChangePassword)
 	}
 }
