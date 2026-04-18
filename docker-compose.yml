@@ -68,7 +68,7 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider -o /dev/null http://localhost/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider -o /dev/null http://localhost:80 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -82,6 +82,9 @@ services:
       context: ./server
       dockerfile: Dockerfile
     container_name: edge-platform-api
+    dns:
+      - 223.5.5.5
+      - 8.8.8.8
     restart: unless-stopped
     env_file:
       - .env
@@ -101,7 +104,7 @@ services:
     volumes:
       - logs:/var/log/app
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider -o /dev/null http://localhost:8080/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider -o /dev/null http://localhost:8080/health || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 5

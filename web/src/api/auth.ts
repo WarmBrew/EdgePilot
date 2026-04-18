@@ -19,6 +19,7 @@ export interface AuthResponse {
     email: string
     role: string
     tenant_id: string
+    must_change_password: boolean
   }
 }
 
@@ -27,12 +28,12 @@ export const authApi = {
     return apiClient.post('/auth/login', data)
   },
 
-  register: (data: RegisterRequest): Promise<AuthResponse> => {
-    return apiClient.post('/auth/register', data)
-  },
-
   refreshToken: (refreshToken: string): Promise<{ access_token: string; refresh_token: string }> => {
     return apiClient.post('/auth/refresh', { refresh_token: refreshToken })
+  },
+
+  forceChangePassword: (newPassword: string): Promise<{ message: string }> => {
+    return apiClient.post('/auth/change-password', { new_password: newPassword })
   },
 
   getProfile: (): Promise<{ id: string; email: string; role: string; tenant_id: string }> => {

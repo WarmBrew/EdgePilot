@@ -15,12 +15,13 @@ var ValidRoles = []string{RoleAdmin, RoleOperator, RoleViewer}
 // User represents a system user within a tenant
 type User struct {
 	BaseModel
-	TenantID  string     `gorm:"type:uuid;not null;index:idx_users_tenant" json:"tenant_id"`
-	Email     string     `gorm:"size:255;uniqueIndex;not null" json:"email"`
-	Password  string     `gorm:"size:255;not null" json:"-"` // bcrypt hash, excluded from JSON
-	Role      string     `gorm:"size:32;not null;default:viewer" json:"role"`
-	LastLogin *time.Time `gorm:"column:last_login" json:"last_login,omitempty"`
-	Tenant    Tenant     `gorm:"foreignKey:TenantID" json:"tenant,omitempty"`
+	TenantID           string     `gorm:"type:uuid;not null;index:idx_users_tenant" json:"tenant_id"`
+	Email              string     `gorm:"size:255;uniqueIndex;not null" json:"email"`
+	Password           string     `gorm:"size:255;not null" json:"-"` // bcrypt hash, excluded from JSON
+	Role               string     `gorm:"size:32;not null;default:viewer" json:"role"`
+	LastLogin          *time.Time `gorm:"column:last_login" json:"last_login,omitempty"`
+	MustChangePassword bool       `gorm:"default:true" json:"must_change_password"`
+	Tenant             Tenant     `gorm:"foreignKey:TenantID" json:"tenant,omitempty"`
 }
 
 // TableName overrides the default table name
