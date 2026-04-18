@@ -15,8 +15,7 @@ func SetupDeviceRoutes(r *gin.Engine, db *gorm.DB, redis *pkgRedis.RedisClient, 
 
 	api := r.Group("/api/v1")
 	{
-		// Public endpoints (agent registration/verification)
-		api.POST("/devices/register", deviceHandler.RegisterDevice)
+		// Public endpoints (agent verification)
 		api.POST("/devices/verify", deviceHandler.VerifyDevice)
 		api.GET("/devices/ws", deviceHandler.AgentWebSocketAuth)
 
@@ -28,6 +27,7 @@ func SetupDeviceRoutes(r *gin.Engine, db *gorm.DB, redis *pkgRedis.RedisClient, 
 		authGroup := api.Group("")
 		authGroup.Use(middleware.JWTAuth(), middleware.RequireTenantIsolation())
 		{
+			authGroup.POST("/devices/register", deviceHandler.RegisterDevice)
 			authGroup.GET("/devices", deviceHandler.ListDevices)
 			authGroup.GET("/devices/:id", deviceHandler.GetDevice)
 			authGroup.PUT("/devices/:id", deviceHandler.UpdateDevice)
