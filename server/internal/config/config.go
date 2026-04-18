@@ -20,6 +20,7 @@ type Config struct {
 	Storage StorageConfig `mapstructure:"storage"`
 	Metrics MetricsConfig `mapstructure:"metrics"`
 	SMTP    SMTPConfig    `mapstructure:"smtp"`
+	Audit   AuditConfig   `mapstructure:"audit"`
 }
 
 // AppConfig holds application-level settings.
@@ -118,6 +119,13 @@ type SMTPConfig struct {
 	From     string `mapstructure:"from"`
 }
 
+// AuditConfig holds audit logging settings.
+type AuditConfig struct {
+	Enabled   bool `mapstructure:"enabled"`
+	QueueSize int  `mapstructure:"queue_size"`
+	BatchSize int  `mapstructure:"batch_size"`
+}
+
 // global config instance.
 var globalConfig *Config
 
@@ -170,6 +178,9 @@ var bindings = map[string]string{
 	"smtp.user":                "SMTP_USER",
 	"smtp.password":            "SMTP_PASSWORD",
 	"smtp.from":                "SMTP_FROM",
+	"audit.enabled":            "AUDIT_ENABLED",
+	"audit.queue_size":         "AUDIT_QUEUE_SIZE",
+	"audit.batch_size":         "AUDIT_BATCH_SIZE",
 }
 
 // InitConfig initializes the configuration from environment variables.
@@ -228,6 +239,10 @@ func InitConfig() error {
 	v.SetDefault("smtp.user", "")
 	v.SetDefault("smtp.password", "")
 	v.SetDefault("smtp.from", "")
+
+	v.SetDefault("audit.enabled", true)
+	v.SetDefault("audit.queue_size", 10000)
+	v.SetDefault("audit.batch_size", 100)
 
 	// Bind each config key to its environment variable
 	for key, env := range bindings {
