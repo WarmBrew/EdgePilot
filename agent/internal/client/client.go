@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/robot-remote-maint/agent/internal/config"
+	"github.com/robot-remote-maint/agent/internal/fileop"
 	"github.com/robot-remote-maint/agent/internal/pty"
 	"github.com/robot-remote-maint/agent/pkg/logger"
 )
@@ -48,16 +49,18 @@ type Client struct {
 	retries    int
 	maxRetries int
 
-	ptyMgr *pty.PTYManager
+	ptyMgr      *pty.PTYManager
+	fileHandler *fileop.FileHandler
 }
 
 func New(cfg *config.Config, log *logger.Logger) *Client {
 	return &Client{
-		cfg:        cfg,
-		log:        log,
-		state:      StateDisconnected,
-		maxRetries: 5,
-		ptyMgr:     pty.NewManager(log),
+		cfg:         cfg,
+		log:         log,
+		state:       StateDisconnected,
+		maxRetries:  5,
+		ptyMgr:      pty.NewManager(log),
+		fileHandler: fileop.NewFileHandler(log),
 	}
 }
 
@@ -218,10 +221,20 @@ func (c *Client) handleMessage(msg []byte) {
 		c.handlePTYResize(base.Payload)
 	case "pty_close":
 		c.handlePTYClose(base.Payload)
-	case "file_read":
-		c.log.Info("Received file_read command")
-	case "file_write":
-		c.log.Info("Received file_write command")
+	case "list_dir":
+		c.handleListDir(base.Payload)
+	case "read_file":
+		c.handleReadFile(base.Payload)
+	case "write_file":
+		c.handleWriteFile(base.Payload)
+	case "delete_file":
+		c.handleDeleteFile(base.Payload)
+	case "stat_file":
+		c.handleStatFile(base.Payload)
+	case "chmod":
+		c.handleChmod(base.Payload)
+	case "chown":
+		c.handleChown(base.Payload)
 	default:
 		c.log.Warn("Unknown message type", "type", base.Type)
 	}
@@ -321,5 +334,173 @@ func (c *Client) handlePTYClose(payload json.RawMessage) {
 
 	if err := c.ptyMgr.CloseSession(req.SessionID); err != nil {
 		c.log.Error("Failed to close PTY session", "error", err, "session_id", req.SessionID)
+	}
+}
+
+func (c *Client) handleListDir(payload json.RawMessage) {
+	var req fileop.ListDirRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.sendErrorResponse("list_dir", "invalid payload: "+err.Error())
+		return
+	}
+
+	files, err := c.fileHandler.ListDirectory(req.Path)
+	if err != nil {
+		c.sendErrorResponse("list_dir", err.Error())
+		return
+	}
+
+	resp := fileop.ListDirResponse{
+		Files: files,
+		Path:  req.Path,
+	}
+	c.sendResponse("list_dir", resp)
+}
+
+func (c *Client) handleReadFile(payload json.RawMessage) {
+	var req fileop.ReadFileRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.sendErrorResponse("read_file", "invalid payload: "+err.Error())
+		return
+	}
+
+	result, err := c.fileHandler.ReadFile(req.Path)
+	if err != nil {
+		c.sendErrorResponse("read_file", err.Error())
+		return
+	}
+
+	c.sendResponse("read_file", result)
+}
+
+func (c *Client) handleWriteFile(payload json.RawMessage) {
+	var req fileop.WriteFileRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.sendErrorResponse("write_file", "invalid payload: "+err.Error())
+		return
+	}
+
+	err := c.fileHandler.WriteFile(req.Path, req.Content, req.Mode)
+	if err != nil {
+		c.sendErrorResponse("write_file", err.Error())
+		return
+	}
+
+	c.sendResponse("write_file", fileop.WriteFileResponse{Success: true})
+}
+
+func (c *Client) handleDeleteFile(payload json.RawMessage) {
+	var req fileop.DeleteFileRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.sendErrorResponse("delete_file", "invalid payload: "+err.Error())
+		return
+	}
+
+	err := c.fileHandler.DeleteFile(req.Path)
+	if err != nil {
+		c.sendErrorResponse("delete_file", err.Error())
+		return
+	}
+
+	c.sendResponse("delete_file", map[string]bool{"success": true})
+}
+
+func (c *Client) handleStatFile(payload json.RawMessage) {
+	var req fileop.GetFileInfoRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.sendErrorResponse("stat_file", "invalid payload: "+err.Error())
+		return
+	}
+
+	info, err := c.fileHandler.GetFileInfo(req.Path)
+	if err != nil {
+		c.sendErrorResponse("stat_file", err.Error())
+		return
+	}
+
+	c.sendResponse("stat_file", info)
+}
+
+func (c *Client) handleChmod(payload json.RawMessage) {
+	var req fileop.ChmodRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.sendErrorResponse("chmod", "invalid payload: "+err.Error())
+		return
+	}
+
+	err := c.fileHandler.ChangePermission(req.Path, req.Mode)
+	if err != nil {
+		c.sendErrorResponse("chmod", err.Error())
+		return
+	}
+
+	c.sendResponse("chmod", map[string]bool{"success": true})
+}
+
+func (c *Client) handleChown(payload json.RawMessage) {
+	var req fileop.ChownRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.sendErrorResponse("chown", "invalid payload: "+err.Error())
+		return
+	}
+
+	err := c.fileHandler.ChangeOwnership(req.Path, req.Owner, req.Group)
+	if err != nil {
+		c.sendErrorResponse("chown", err.Error())
+		return
+	}
+
+	c.sendResponse("chown", map[string]bool{"success": true})
+}
+
+func (c *Client) sendResponse(msgType string, payload interface{}) {
+	resp := map[string]interface{}{
+		"type":    msgType + "_resp",
+		"payload": payload,
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		c.log.Error("Failed to marshal response", "error", err)
+		return
+	}
+
+	c.mu.RLock()
+	conn := c.conn
+	c.mu.RUnlock()
+
+	if conn == nil {
+		c.log.Error("No connection to send response")
+		return
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		c.log.Error("Failed to send response", "error", err)
+	}
+}
+
+func (c *Client) sendErrorResponse(msgType, errMsg string) {
+	resp := map[string]interface{}{
+		"type":  msgType + "_resp",
+		"error": errMsg,
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		c.log.Error("Failed to marshal error response", "error", err)
+		return
+	}
+
+	c.mu.RLock()
+	conn := c.conn
+	c.mu.RUnlock()
+
+	if conn == nil {
+		c.log.Error("No connection to send error response")
+		return
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		c.log.Error("Failed to send error response", "error", err)
 	}
 }
