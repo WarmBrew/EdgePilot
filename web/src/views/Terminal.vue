@@ -47,11 +47,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import 'xterm/css/xterm.css'
+import { terminalApi } from '@/api/terminal'
 
 const route = useRoute()
 const terminalRef = ref<HTMLElement | null>(null)
@@ -67,7 +68,7 @@ let terminal: Terminal | null = null
 let fitAddon: FitAddon | null = null
 let ws: WebSocket | null = null
 
-function connectTerminal() {
+async function connectTerminal() {
   error.value = ''
   connecting.value = true
 
@@ -78,8 +79,18 @@ function connectTerminal() {
     return
   }
 
+  try {
+    const sessionRes = await terminalApi.createSession(deviceId.value)
+    sessionId.value = sessionRes.session_id
+    deviceName.value = deviceId.value.slice(0, 12)
+  } catch (e: any) {
+    error.value = e.response?.data?.message || 'Failed to create terminal session'
+    connecting.value = false
+    return
+  }
+
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const wsUrl = `${protocol}://${window.location.host}/ws/terminal/${sessionId.value || 'pending'}?token=${token}`
+  const wsUrl = `${protocol}://${window.location.host}/ws/terminal/${sessionId.value}?token=${token}`
 
   terminal = new Terminal({
     cursorBlink: true,
@@ -171,10 +182,17 @@ function connectTerminal() {
   }
 }
 
-function handleDisconnect() {
+async function handleDisconnect() {
   if (ws) {
     ws.send(JSON.stringify({ type: 'close' }))
     ws.close()
+  }
+  if (sessionId.value) {
+    try {
+      await terminalApi.closeSession(sessionId.value)
+    } catch {
+      // Ignore errors on close
+    }
   }
   connected.value = false
 }

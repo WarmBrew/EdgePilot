@@ -227,8 +227,8 @@ function initEditor(content: string) {
   setTimeout(async () => {
     if (!editorRef.value) return
 
-    const { editor } = await import('monaco-editor')
-    editorInstance = editor.create(editorRef.value, {
+    const monaco = await import('monaco-editor')
+    editorInstance = monaco.editor.create(editorRef.value, {
       value: content,
       language: 'plaintext',
       theme: 'vs-dark',
@@ -247,9 +247,10 @@ function initEditor(content: string) {
       html: 'html', css: 'css', md: 'markdown', sh: 'shell',
       bash: 'shell', rb: 'ruby', rs: 'rust', java: 'java',
     }
-    if (langMap[ext]) {
-      editorInstance?.getAction('editor.action.formatDocument')
-      editorInstance?.getModel()?.setValue(content)
+    const lang = langMap[ext ?? ''] || 'plaintext'
+    const model = editorInstance.getModel()
+    if (model) {
+      monaco.editor.setModelLanguage(model, lang)
     }
   }, 100)
 }
@@ -294,15 +295,11 @@ async function handleUpload(event: Event) {
 
   try {
     ElMessage.info('Uploading...')
-    await fetch(`/api/v1/devices/${deviceId.value}/files/upload`, {
-      method: 'POST',
-      body: formData,
-      headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
-    })
+    await fileApi.uploadFile(deviceId.value, formData)
     ElMessage.success('Uploaded')
     await loadFiles()
-  } catch {
-    ElMessage.error('Failed to upload')
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.message || 'Failed to upload')
   }
   target.value = ''
 }

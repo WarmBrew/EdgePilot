@@ -140,6 +140,42 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showAddDialog" class="modal-backdrop" @click.self="showAddDialog = false">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Add Device</h3>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Device Name</label>
+            <input
+              v-model="newDeviceName"
+              class="form-input"
+              type="text"
+              placeholder="Enter device name"
+              @keyup.enter="handleAddDevice"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Group ID (Optional)</label>
+            <input
+              v-model="newDeviceGroupId"
+              class="form-input"
+              type="text"
+              placeholder="Enter group ID"
+              @keyup.enter="handleAddDevice"
+            />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" @click="showAddDialog = false">Cancel</button>
+          <button class="btn btn-primary" :disabled="addingDevice || !newDeviceName.trim()" @click="handleAddDevice">
+            {{ addingDevice ? 'Adding...' : 'Add' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -159,6 +195,10 @@ const showDeleteConfirm = ref(false)
 const showAddDialog = ref(false)
 const deleteTarget = ref<any>(null)
 const deleting = ref(false)
+
+const newDeviceName = ref('')
+const newDeviceGroupId = ref('')
+const addingDevice = ref(false)
 
 const filters = [
   { label: 'All', value: 'all' },
@@ -213,6 +253,29 @@ async function doDelete() {
     deleting.value = false
     showDeleteConfirm.value = false
     deleteTarget.value = null
+  }
+}
+
+async function handleAddDevice() {
+  if (!newDeviceName.value.trim()) {
+    ElMessage.warning('Device name is required')
+    return
+  }
+  addingDevice.value = true
+  try {
+    await deviceApi.create({
+      name: newDeviceName.value.trim(),
+      group_id: newDeviceGroupId.value || undefined,
+    })
+    ElMessage.success('Device added successfully')
+    showAddDialog.value = false
+    newDeviceName.value = ''
+    newDeviceGroupId.value = ''
+    await loadData()
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.message || 'Failed to add device')
+  } finally {
+    addingDevice.value = false
   }
 }
 
@@ -448,6 +511,43 @@ onMounted(loadData)
 
 .modal-text strong {
   color: var(--text-primary);
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
+}
+
+.form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.modal .form-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 14px;
+  transition: border-color var(--transition-fast);
+}
+
+.modal .form-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.modal .form-input::placeholder {
+  color: var(--text-muted);
 }
 
 .modal-footer {
