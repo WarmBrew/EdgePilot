@@ -42,6 +42,9 @@ type Gateway struct {
 
 	respMu      sync.RWMutex
 	respWaiters map[string]chan *WSMessage
+
+	deviceSubMu       sync.RWMutex
+	deviceSubscribers map[string][]func(msg *WSMessage)
 }
 
 // NewGateway creates a new Gateway instance.
@@ -53,11 +56,12 @@ func NewGateway(redisClient *goredis.Client, hub *Hub) *Gateway {
 	}
 
 	return &Gateway{
-		redis:       redisClient,
-		hub:         hub,
-		maxSessions: maxSessions,
-		serverID:    fmt.Sprintf("server-%d", time.Now().UnixNano()),
-		respWaiters: make(map[string]chan *WSMessage),
+		redis:             redisClient,
+		hub:               hub,
+		maxSessions:       maxSessions,
+		serverID:          fmt.Sprintf("server-%d", time.Now().UnixNano()),
+		respWaiters:       make(map[string]chan *WSMessage),
+		deviceSubscribers: make(map[string][]func(msg *WSMessage)),
 	}
 }
 
@@ -269,6 +273,7 @@ func (g *Gateway) handleDeviceMessage(deviceID string, msg *WSMessage) {
 	if g.tryResolveResponse(msg) {
 		return
 	}
+	g.notifyDeviceSubscribers(deviceID, msg)
 }
 
 func (g *Gateway) tryResolveResponse(msg *WSMessage) bool {
@@ -290,4 +295,33 @@ func (g *Gateway) tryResolveResponse(msg *WSMessage) bool {
 	}
 
 	return true
+}
+
+// SubscribeToDevice registers a callback for all messages from a specific device.
+// Returns an unsubscribe function.
+func (g *Gateway) SubscribeToDevice(deviceID string, handler func(msg *WSMessage)) func() {
+	g.deviceSubMu.Lock()
+	defer g.deviceSubMu.Unlock()
+
+	g.deviceSubscribers[deviceID] = append(g.deviceSubscribers[deviceID], handler)
+
+	idx := len(g.deviceSubscribers[deviceID]) - 1
+	return func() {
+		g.deviceSubMu.Lock()
+		defer g.deviceSubMu.Unlock()
+		subs := g.deviceSubscribers[deviceID]
+		if idx < len(subs) {
+			g.deviceSubscribers[deviceID] = append(subs[:idx], subs[idx+1:]...)
+		}
+	}
+}
+
+func (g *Gateway) notifyDeviceSubscribers(deviceID string, msg *WSMessage) {
+	g.deviceSubMu.RLock()
+	subs := g.deviceSubscribers[deviceID]
+	g.deviceSubMu.RUnlock()
+
+	for _, handler := range subs {
+		handler(msg)
+	}
 }

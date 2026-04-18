@@ -23,6 +23,8 @@ func SetupFileRoutes(r *gin.Engine, db *gorm.DB, redis *pkgRedis.RedisClient, gw
 		authGroup.DELETE("/devices/:id/files/:filepath", fileHandler.DeleteFile)
 		authGroup.POST("/devices/:id/files/upload", fileHandler.UploadFile)
 		authGroup.GET("/devices/:id/files/:filepath/download", fileHandler.DownloadFile)
+		authGroup.GET("/devices/:id/files/:filepath/info", fileHandler.GetFileInfo)
+		authGroup.PATCH("/devices/:id/files/:filepath/permission", middleware.RequireRole("admin"), fileHandler.ChangeFilePermission)
 
 		authGroup.GET("/download/:token", fileHandler.HandleDownloadToken)
 	}

@@ -8,6 +8,8 @@ import (
 	"strconv"
 
 	"github.com/edge-platform/server/internal/api/middleware"
+	"github.com/edge-platform/server/internal/pkg/fileutil"
+	"github.com/edge-platform/server/internal/pkg/rbac"
 	"github.com/edge-platform/server/internal/service"
 	"github.com/edge-platform/server/internal/websocket"
 
@@ -308,6 +310,121 @@ func (h *FileHandler) HandleDownloadToken(c *gin.Context) {
 		"mimetype": resp.Mimetype,
 		"size":     resp.Size,
 	})
+}
+
+type FilePermissionRequest struct {
+	Mode  string `json:"mode"`
+	Owner string `json:"owner"`
+	Group string `json:"group"`
+}
+
+// ChangeFilePermission handles PATCH /api/v1/devices/:id/files/:filepath/permission
+func (h *FileHandler) ChangeFilePermission(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	deviceID := c.Param("id")
+	filePath := c.Param("filepath")
+
+	if filePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file path is required"})
+		return
+	}
+
+	var req FilePermissionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	if req.Mode == "" && req.Owner == "" && req.Group == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one of mode, owner, or group is required"})
+		return
+	}
+
+	if req.Mode != "" {
+		if err := fileutil.ValidateModeFormat(req.Mode); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("invalid mode format: %s", err.Error()),
+			})
+			return
+		}
+	}
+
+	if req.Owner != "" {
+		if err := fileutil.ValidateOwnerOrGroup(req.Owner, "owner"); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	if req.Group != "" {
+		if err := fileutil.ValidateOwnerOrGroup(req.Group, "group"); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	if req.Mode != "" {
+		userRole := middleware.MustGetRole(c)
+		if !rbac.HasFilePermission(userRole, "chmod") {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for chmod"})
+			return
+		}
+		if err := h.svc.ChangePermission(c.Request.Context(), userID, deviceID, filePath, req.Mode); err != nil {
+			if err.Error() == fmt.Sprintf("device %s is not online", deviceID) {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "device is offline"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	if req.Owner != "" || req.Group != "" {
+		userRole := middleware.MustGetRole(c)
+		if !rbac.HasFilePermission(userRole, "chown") {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for chown"})
+			return
+		}
+		if err := h.svc.ChangeOwnership(c.Request.Context(), userID, deviceID, filePath, req.Owner, req.Group); err != nil {
+			if err.Error() == fmt.Sprintf("device %s is not online", deviceID) {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "device is offline"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":   true,
+		"new_mode":  req.Mode,
+		"new_owner": req.Owner,
+		"new_group": req.Group,
+	})
+}
+
+// GetFileInfo handles GET /api/v1/devices/:id/files/:filepath/info
+func (h *FileHandler) GetFileInfo(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	deviceID := c.Param("id")
+	filePath := c.Param("filepath")
+
+	if filePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file path is required"})
+		return
+	}
+
+	result, err := h.svc.GetFileInfo(c.Request.Context(), userID, deviceID, filePath)
+	if err != nil {
+		if err.Error() == fmt.Sprintf("device %s is not online", deviceID) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "device is offline"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 func readFileContent(file interface{ Read([]byte) (int, error) }) ([]byte, error) {
