@@ -20,6 +20,9 @@ const (
 	MessageTypeDeleteFile   = "delete_file"
 	MessageTypeUploadFile   = "upload_file"
 	MessageTypeDownloadFile = "download_file"
+	MessageTypeFileStat     = "file_stat"
+	MessageTypeFileChmod    = "file_chmod"
+	MessageTypeFileChown    = "file_chown"
 )
 
 // WSMessage defines the unified WebSocket message format.

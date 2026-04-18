@@ -3,6 +3,7 @@ package fileutil
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -142,5 +143,36 @@ func LogPermissionChange(path string, oldMode, newMode os.FileMode, userID strin
 }
 
 func getLogger() interface{ Info(string, ...any) } {
+	return nil
+}
+
+var validOctalMode = regexp.MustCompile(`^0?[0-7]{3,4}$`)
+var validNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$`)
+
+func ValidateModeFormat(mode string) error {
+	if mode == "" {
+		return fmt.Errorf("mode must not be empty")
+	}
+
+	if !validOctalMode.MatchString(mode) {
+		return fmt.Errorf("invalid mode format '%s': must be a valid octal string (e.g., 0755, 644)", mode)
+	}
+
+	return nil
+}
+
+func ValidateOwnerOrGroup(name string, field string) error {
+	if name == "" {
+		return nil
+	}
+
+	if !validNamePattern.MatchString(name) {
+		return fmt.Errorf("invalid %s '%s': must contain only alphanumeric characters, underscores, dots, and hyphens", field, name)
+	}
+
+	if len(name) > 255 {
+		return fmt.Errorf("invalid %s: name too long (max 255 characters)", field)
+	}
+
 	return nil
 }

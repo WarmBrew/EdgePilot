@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"mime"
 	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/edge-platform/server/internal/domain/models"
+	"github.com/edge-platform/server/internal/pkg/fileutil"
 	pkgRedis "github.com/edge-platform/server/internal/pkg/redis"
 	"github.com/edge-platform/server/internal/websocket"
 
@@ -107,11 +107,26 @@ var protectedPaths = []string{
 }
 
 type FileInfo struct {
-	Name       string    `json:"name"`
-	Type       string    `json:"type"`
-	Size       int64     `json:"size"`
-	Mode       string    `json:"mode"`
-	ModifiedAt time.Time `json:"modified_at"`
+	Name          string    `json:"name"`
+	Type          string    `json:"type"`
+	Size          int64     `json:"size"`
+	Mode          string    `json:"mode"`
+	ModifiedAt    time.Time `json:"modified_at"`
+	IsSymlink     bool      `json:"is_symlink,omitempty"`
+	SymlinkTarget string    `json:"symlink_target,omitempty"`
+}
+
+type DetailedFileInfo struct {
+	Name          string    `json:"name"`
+	Path          string    `json:"path"`
+	Size          int64     `json:"size"`
+	Mode          string    `json:"mode"`
+	Owner         string    `json:"owner"`
+	Group         string    `json:"group"`
+	ModifiedAt    time.Time `json:"modified_at"`
+	IsDir         bool      `json:"is_dir"`
+	IsSymlink     bool      `json:"is_symlink"`
+	SymlinkTarget string    `json:"symlink_target,omitempty"`
 }
 
 type ListDirResponse struct {
@@ -180,6 +195,10 @@ func (s *FileService) sanitizePath(userPath string) (string, error) {
 		}
 	}
 
+	if fileutil.IsSensitivePath(cleaned) {
+		return "", fmt.Errorf("access to sensitive path '%s' is not allowed", cleaned)
+	}
+
 	return cleaned, nil
 }
 
@@ -226,11 +245,13 @@ func (s *FileService) ListDir(ctx context.Context, userID, deviceID, targetPath 
 
 	var rawResp struct {
 		Files []struct {
-			Name       string `json:"name"`
-			Type       string `json:"type"`
-			Size       int64  `json:"size"`
-			Mode       string `json:"mode"`
-			ModifiedAt string `json:"modified_at"`
+			Name          string `json:"name"`
+			Type          string `json:"type"`
+			Size          int64  `json:"size"`
+			Mode          string `json:"mode"`
+			ModifiedAt    string `json:"modified_at"`
+			IsSymlink     bool   `json:"is_symlink,omitempty"`
+			SymlinkTarget string `json:"symlink_target,omitempty"`
 		} `json:"files"`
 		Path string `json:"path"`
 	}
@@ -254,13 +275,27 @@ func (s *FileService) ListDir(ctx context.Context, userID, deviceID, targetPath 
 					modifiedAt = t
 				}
 			}
-			pagedFiles = append(pagedFiles, FileInfo{
-				Name:       f.Name,
-				Type:       f.Type,
-				Size:       f.Size,
-				Mode:       f.Mode,
-				ModifiedAt: modifiedAt,
-			})
+
+			entry := FileInfo{
+				Name:          f.Name,
+				Type:          f.Type,
+				Size:          f.Size,
+				Mode:          f.Mode,
+				ModifiedAt:    modifiedAt,
+				IsSymlink:     f.IsSymlink,
+				SymlinkTarget: f.SymlinkTarget,
+			}
+
+			if f.IsSymlink && f.SymlinkTarget != "" {
+				if fileutil.IsSensitivePath(f.SymlinkTarget) {
+					slog.Warn("blocked access to symlink targeting sensitive path",
+						"name", f.Name,
+						"target", f.SymlinkTarget)
+					entry.SymlinkTarget = "[REDACTED - sensitive target]"
+				}
+			}
+
+			pagedFiles = append(pagedFiles, entry)
 		}
 	}
 
@@ -315,13 +350,7 @@ func (s *FileService) GetFileContent(ctx context.Context, userID, deviceID, file
 	}
 
 	if rawResp.Mimetype == "" {
-		ext := filepath.Ext(cleanedPath)
-		if ext != "" {
-			rawResp.Mimetype = mime.TypeByExtension(ext)
-		}
-		if rawResp.Mimetype == "" {
-			rawResp.Mimetype = "application/octet-stream"
-		}
+		rawResp.Mimetype = fileutil.DetectMimeType(cleanedPath)
 	}
 
 	s.writeAuditLog(ctx, userID, deviceID, models.ActionFileRead, map[string]interface{}{
@@ -356,10 +385,15 @@ func (s *FileService) WriteFile(ctx context.Context, userID, deviceID, filePath,
 		return nil, fmt.Errorf("invalid base64 content: %w", err)
 	}
 
+	fileMode := "0644"
+	if err := fileutil.ValidateFileMode(fileMode); err != nil {
+		return nil, fmt.Errorf("invalid file mode: %w", err)
+	}
+
 	reqPayload := map[string]interface{}{
 		"path":    cleanedPath,
 		"content": content,
-		"mode":    "0644",
+		"mode":    fileMode,
 	}
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, fileOpTimeout)
@@ -417,10 +451,15 @@ func (s *FileService) UploadFile(ctx context.Context, userID, deviceID, director
 
 	contentBase64 := base64.StdEncoding.EncodeToString(fileContent)
 
+	fileMode := "0644"
+	if err := fileutil.ValidateFileMode(fileMode); err != nil {
+		return nil, fmt.Errorf("invalid file mode: %w", err)
+	}
+
 	reqPayload := map[string]interface{}{
 		"path":    targetPath,
 		"content": contentBase64,
-		"mode":    "0644",
+		"mode":    fileMode,
 	}
 
 	sessionID := uuid.New().String()
@@ -502,6 +541,162 @@ func (s *FileService) ValidateDownloadToken(ctx context.Context, token string) (
 
 func (s *FileService) RevokeDownloadToken(ctx context.Context, token string) error {
 	return s.redis.Del(ctx, downloadTokenPrefix+token)
+}
+
+func (s *FileService) ChangePermission(ctx context.Context, userID, deviceID, filePath, mode string) error {
+	if err := s.validateDeviceOnline(ctx, deviceID); err != nil {
+		return err
+	}
+
+	cleanedPath, err := s.sanitizePath(filePath)
+	if err != nil {
+		return fmt.Errorf("invalid path: %w", err)
+	}
+
+	reqPayload := map[string]interface{}{
+		"path": cleanedPath,
+		"mode": mode,
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, fileOpTimeout)
+	defer cancel()
+
+	sessionID := uuid.New().String()
+
+	resp, err := s.gw.SendAndWait(timeoutCtx, deviceID, websocket.MessageTypeFileChmod, reqPayload, sessionID, fileOpTimeout)
+	if err != nil {
+		return fmt.Errorf("failed to change file permission: %w", err)
+	}
+
+	var rawResp struct {
+		Success bool   `json:"success"`
+		Error   string `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(resp.Payload, &rawResp); err != nil {
+		return fmt.Errorf("failed to parse chmod response: %w", err)
+	}
+
+	if !rawResp.Success {
+		return fmt.Errorf("device rejected chmod: %s", rawResp.Error)
+	}
+
+	s.writeAuditLog(ctx, userID, deviceID, models.ActionFileChmod, map[string]interface{}{
+		"path": cleanedPath,
+		"mode": mode,
+	})
+
+	return nil
+}
+
+func (s *FileService) ChangeOwnership(ctx context.Context, userID, deviceID, filePath, owner, group string) error {
+	if err := s.validateDeviceOnline(ctx, deviceID); err != nil {
+		return err
+	}
+
+	cleanedPath, err := s.sanitizePath(filePath)
+	if err != nil {
+		return fmt.Errorf("invalid path: %w", err)
+	}
+
+	reqPayload := map[string]interface{}{
+		"path":  cleanedPath,
+		"owner": owner,
+		"group": group,
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, fileOpTimeout)
+	defer cancel()
+
+	sessionID := uuid.New().String()
+
+	resp, err := s.gw.SendAndWait(timeoutCtx, deviceID, websocket.MessageTypeFileChown, reqPayload, sessionID, fileOpTimeout)
+	if err != nil {
+		return fmt.Errorf("failed to change file ownership: %w", err)
+	}
+
+	var rawResp struct {
+		Success bool   `json:"success"`
+		Error   string `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(resp.Payload, &rawResp); err != nil {
+		return fmt.Errorf("failed to parse chown response: %w", err)
+	}
+
+	if !rawResp.Success {
+		return fmt.Errorf("device rejected chown: %s", rawResp.Error)
+	}
+
+	s.writeAuditLog(ctx, userID, deviceID, models.ActionFileChown, map[string]interface{}{
+		"path":  cleanedPath,
+		"owner": owner,
+		"group": group,
+	})
+
+	return nil
+}
+
+func (s *FileService) GetFileInfo(ctx context.Context, userID, deviceID, filePath string) (*DetailedFileInfo, error) {
+	if err := s.validateDeviceOnline(ctx, deviceID); err != nil {
+		return nil, err
+	}
+
+	cleanedPath, err := s.sanitizePath(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
+	}
+
+	reqPayload := map[string]interface{}{
+		"path": cleanedPath,
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, fileOpTimeout)
+	defer cancel()
+
+	sessionID := uuid.New().String()
+
+	resp, err := s.gw.SendAndWait(timeoutCtx, deviceID, websocket.MessageTypeFileStat, reqPayload, sessionID, fileOpTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file info: %w", err)
+	}
+
+	var rawResp struct {
+		Name          string `json:"name"`
+		Size          int64  `json:"size"`
+		Mode          string `json:"mode"`
+		Owner         string `json:"owner"`
+		Group         string `json:"group"`
+		ModifiedAt    string `json:"modified_at"`
+		IsDir         bool   `json:"is_dir"`
+		IsSymlink     bool   `json:"is_symlink"`
+		SymlinkTarget string `json:"symlink_target,omitempty"`
+	}
+	if err := json.Unmarshal(resp.Payload, &rawResp); err != nil {
+		return nil, fmt.Errorf("failed to parse stat response: %w", err)
+	}
+
+	modifiedAt := time.Time{}
+	if rawResp.ModifiedAt != "" {
+		if t, err := time.Parse(time.RFC3339, rawResp.ModifiedAt); err == nil {
+			modifiedAt = t
+		}
+	}
+
+	s.writeAuditLog(ctx, userID, deviceID, models.ActionFileInfo, map[string]interface{}{
+		"path": cleanedPath,
+	})
+
+	return &DetailedFileInfo{
+		Name:          rawResp.Name,
+		Path:          cleanedPath,
+		Size:          rawResp.Size,
+		Mode:          rawResp.Mode,
+		Owner:         rawResp.Owner,
+		Group:         rawResp.Group,
+		ModifiedAt:    modifiedAt,
+		IsDir:         rawResp.IsDir,
+		IsSymlink:     rawResp.IsSymlink,
+		SymlinkTarget: rawResp.SymlinkTarget,
+	}, nil
 }
 
 func (s *FileService) DeleteFile(ctx context.Context, userID, deviceID, filePath string) error {
