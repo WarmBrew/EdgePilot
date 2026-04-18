@@ -98,6 +98,16 @@ func main() {
 	routes.SetupFileRoutes(r, db, redisClient, gw)
 	routes.SetupAuditRoutes(r, db, auditService)
 
+	// Health check endpoint
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
+	// Root endpoint (returns 200 for health checks)
+	r.GET("/", func(c *gin.Context) {
+		c.JSON(200, gin.H{"service": "EdgePilot API", "status": "running"})
+	})
+
 	addr := fmt.Sprintf(":%d", cfg.App.Port)
 	srv := &http.Server{
 		Addr:    addr,
