@@ -2,31 +2,74 @@ package handlers
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/edge-platform/server/internal/api/middleware"
 	"github.com/edge-platform/server/internal/domain/models"
 	"github.com/edge-platform/server/internal/domain/service"
 	devpkg "github.com/edge-platform/server/internal/pkg/device"
 	pkgRedis "github.com/edge-platform/server/internal/pkg/redis"
+	"github.com/edge-platform/server/internal/websocket"
+
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
+	gorillaws "github.com/gorilla/websocket"
 	"gorm.io/gorm"
 )
 
+var wsUpgrader = gorillaws.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		allowed := os.Getenv("CORS_ORIGINS")
+		if allowed == "" {
+			return false
+		}
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		for _, a := range strings.Split(allowed, ",") {
+			a = strings.TrimSpace(a)
+			if a == "" {
+				continue
+			}
+			au, err := url.Parse(a)
+			if err != nil {
+				continue
+			}
+			if au.Host == u.Host {
+				return true
+			}
+		}
+		return false
+	},
+}
+
+// DeviceHandler handles device/agent registration and management.
 type DeviceHandler struct {
 	db          *gorm.DB
 	redisClient *pkgRedis.RedisClient
 	svc         *service.DeviceService
+	hub         *websocket.Hub
 }
 
-func NewDeviceHandler(db *gorm.DB, redis *pkgRedis.RedisClient) *DeviceHandler {
+// NewDeviceHandler creates a new DeviceHandler.
+func NewDeviceHandler(db *gorm.DB, redis *pkgRedis.RedisClient, hub *websocket.Hub) *DeviceHandler {
 	return &DeviceHandler{
 		db:          db,
 		redisClient: redis,
 		svc:         service.NewDeviceService(db, redis),
+		hub:         hub,
 	}
 }
 
@@ -156,73 +199,81 @@ func (h *DeviceHandler) VerifyDevice(c *gin.Context) {
 }
 
 // AgentWebSocketAuth handles WebSocket authentication for agents.
+// After successful auth, the Agent's WebSocket connection is registered to the Hub
+// so that ReadPump/WritePump handle all subsequent messages (heartbeats, PTY, file ops).
 func (h *DeviceHandler) AgentWebSocketAuth(c *gin.Context) {
 	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
+		slog.Error("websocket upgrade failed during agent auth", "error", err)
 		return
 	}
 
-	defer conn.Close()
+	// Set read deadline for auth message
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 
 	_, msg, err := conn.ReadMessage()
 	if err != nil {
+		slog.Warn("failed to read auth message", "error", err)
+		conn.Close()
 		return
 	}
 
+	// Clear read deadline
+	conn.SetReadDeadline(time.Time{})
+
 	var authMsg AgentAuthMessage
 	if err := json.Unmarshal(msg, &authMsg); err != nil {
+		slog.Warn("invalid auth message format", "error", err)
 		conn.WriteJSON(gin.H{"error": "invalid auth message"})
+		conn.Close()
 		return
 	}
 
 	if authMsg.Type != "auth" {
 		conn.WriteJSON(gin.H{"error": "first message must be auth"})
+		conn.Close()
 		return
 	}
 
 	if authMsg.DeviceID == "" || authMsg.AgentToken == "" {
 		conn.WriteJSON(gin.H{"error": "device_id and agent_token are required"})
+		conn.Close()
 		return
 	}
 
 	var device models.Device
 	if err := h.db.Where("id = ?", authMsg.DeviceID).First(&device).Error; err != nil {
 		conn.WriteJSON(gin.H{"error": "device not found"})
+		conn.Close()
 		return
 	}
 
 	if !devpkg.VerifyAgentToken(device.AgentToken, authMsg.AgentToken) {
 		conn.WriteJSON(gin.H{"error": "authentication failed"})
+		conn.Close()
 		return
 	}
+
+	// Update device status to online
+	now := time.Now()
+	h.db.Model(&device).Updates(map[string]interface{}{
+		"status":         models.StatusOnline,
+		"last_heartbeat": now,
+	})
 
 	ctx := c.Request.Context()
+	h.redisClient.Raw().Set(ctx, "device:online:"+device.ID, "1", 0)
 
-	if err := h.redisClient.Raw().Set(ctx, "device:online:"+device.ID, "1", 0).Err(); err != nil {
-		conn.WriteJSON(gin.H{"error": "internal error"})
-		return
-	}
+	slog.Info("agent websocket authenticated", "device_id", authMsg.DeviceID)
+	conn.WriteJSON(gin.H{"status": "ok"})
 
-	if err := h.redisClient.Raw().Set(ctx, "device:conn:"+device.ID, conn.RemoteAddr().String(), 0).Err(); err != nil {
-		conn.WriteJSON(gin.H{"error": "internal error"})
-		return
-	}
+	// Create a Client and register to Hub - the Hub's ReadPump will handle all subsequent messages
+	client := websocket.NewClient(h.hub, conn, authMsg.DeviceID)
+	h.hub.RegisterClient(client)
 
-	conn.WriteJSON(gin.H{"status": "authenticated", "device_id": device.ID})
-
-	for {
-		_, _, err := conn.ReadMessage()
-		if err != nil {
-			break
-		}
-	}
-
-	h.redisClient.Raw().Del(ctx, "device:online:"+device.ID)
-	h.redisClient.Raw().Del(ctx, "device:conn:"+device.ID)
-}
-
-var wsUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	// Start ReadPump and WritePump goroutines
+	go client.ReadPump()
+	go client.WritePump()
 }
 
 // ListDevices handles GET /api/v1/devices

@@ -95,7 +95,7 @@ func (m *PTYManager) SetConnection(ws PtyMessageWriter) {
 	m.ws = ws
 }
 
-func (m *PTYManager) CreateSession(payload json.RawMessage) error {
+func (m *PTYManager) CreateSession(payload json.RawMessage, sessionID string) error {
 	var req CreateSessionPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return fmt.Errorf("failed to parse payload: %w", err)
@@ -179,9 +179,13 @@ func (m *PTYManager) CreateSession(payload json.RawMessage) error {
 		"rows", rows,
 		"pty_path", ptmx.Name())
 
-	if err := m.sendJSON(PTYReady{
-		SessionID: req.SessionID,
-		PtyPath:   ptmx.Name(),
+	if err := m.sendJSON(map[string]interface{}{
+		"type":    "create_pty_resp",
+		"session": sessionID,
+		"payload": PTYReady{
+			SessionID: req.SessionID,
+			PtyPath:   ptmx.Name(),
+		},
 	}); err != nil {
 		m.log.Error("Failed to send PTY ready message", "error", err)
 	}

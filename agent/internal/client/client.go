@@ -213,6 +213,7 @@ func (c *Client) handleMessage(msg []byte) {
 	var base struct {
 		Type    string          `json:"type"`
 		Payload json.RawMessage `json:"payload"`
+		Session string          `json:"session"`
 	}
 	if err := json.Unmarshal(msg, &base); err != nil {
 		c.log.Error("Failed to parse message", "error", err, "raw", string(msg))
@@ -224,8 +225,8 @@ func (c *Client) handleMessage(msg []byte) {
 		c.log.Debug("Received ping")
 	case "heartbeat_ack":
 		c.log.Debug("Received heartbeat ack")
-	case "pty_create":
-		c.handlePTYCreate(base.Payload)
+	case "create_pty":
+		c.handlePTYCreate(base.Payload, base.Session)
 	case "pty_input":
 		c.handlePTYInput(base.Payload)
 	case "pty_resize":
@@ -233,19 +234,19 @@ func (c *Client) handleMessage(msg []byte) {
 	case "pty_close":
 		c.handlePTYClose(base.Payload)
 	case "list_dir":
-		c.handleListDir(base.Payload)
+		c.handleListDir(base.Payload, base.Session)
 	case "read_file":
-		c.handleReadFile(base.Payload)
+		c.handleReadFile(base.Payload, base.Session)
 	case "write_file":
-		c.handleWriteFile(base.Payload)
+		c.handleWriteFile(base.Payload, base.Session)
 	case "delete_file":
-		c.handleDeleteFile(base.Payload)
+		c.handleDeleteFile(base.Payload, base.Session)
 	case "stat_file":
-		c.handleStatFile(base.Payload)
+		c.handleStatFile(base.Payload, base.Session)
 	case "chmod":
-		c.handleChmod(base.Payload)
+		c.handleChmod(base.Payload, base.Session)
 	case "chown":
-		c.handleChown(base.Payload)
+		c.handleChown(base.Payload, base.Session)
 	default:
 		c.log.Warn("Unknown message type", "type", base.Type)
 	}
@@ -300,8 +301,8 @@ func (c *Client) calculateBackoff() time.Duration {
 	return backoff
 }
 
-func (c *Client) handlePTYCreate(payload json.RawMessage) {
-	if err := c.ptyMgr.CreateSession(payload); err != nil {
+func (c *Client) handlePTYCreate(payload json.RawMessage, sessionID string) {
+	if err := c.ptyMgr.CreateSession(payload, sessionID); err != nil {
 		c.log.Error("Failed to create PTY session", "error", err)
 	}
 }
@@ -348,16 +349,16 @@ func (c *Client) handlePTYClose(payload json.RawMessage) {
 	}
 }
 
-func (c *Client) handleListDir(payload json.RawMessage) {
+func (c *Client) handleListDir(payload json.RawMessage, sessionID string) {
 	var req fileop.ListDirRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
-		c.sendErrorResponse("list_dir", "invalid payload: "+err.Error())
+		c.sendErrorResponse("list_dir", "invalid payload: "+err.Error(), sessionID)
 		return
 	}
 
 	files, err := c.fileHandler.ListDirectory(req.Path)
 	if err != nil {
-		c.sendErrorResponse("list_dir", err.Error())
+		c.sendErrorResponse("list_dir", err.Error(), sessionID)
 		return
 	}
 
@@ -365,109 +366,112 @@ func (c *Client) handleListDir(payload json.RawMessage) {
 		Files: files,
 		Path:  req.Path,
 	}
-	c.sendResponse("list_dir", resp)
+	c.sendResponse("list_dir", resp, sessionID)
 }
 
-func (c *Client) handleReadFile(payload json.RawMessage) {
+func (c *Client) handleReadFile(payload json.RawMessage, sessionID string) {
 	var req fileop.ReadFileRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
-		c.sendErrorResponse("read_file", "invalid payload: "+err.Error())
+		c.sendErrorResponse("read_file", "invalid payload: "+err.Error(), sessionID)
 		return
 	}
 
 	result, err := c.fileHandler.ReadFile(req.Path)
 	if err != nil {
-		c.sendErrorResponse("read_file", err.Error())
+		c.sendErrorResponse("read_file", err.Error(), sessionID)
 		return
 	}
 
-	c.sendResponse("read_file", result)
+	c.sendResponse("read_file", result, sessionID)
 }
 
-func (c *Client) handleWriteFile(payload json.RawMessage) {
+func (c *Client) handleWriteFile(payload json.RawMessage, sessionID string) {
 	var req fileop.WriteFileRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
-		c.sendErrorResponse("write_file", "invalid payload: "+err.Error())
+		c.sendErrorResponse("write_file", "invalid payload: "+err.Error(), sessionID)
 		return
 	}
 
 	err := c.fileHandler.WriteFile(req.Path, req.Content, req.Mode)
 	if err != nil {
-		c.sendErrorResponse("write_file", err.Error())
+		c.sendErrorResponse("write_file", err.Error(), sessionID)
 		return
 	}
 
-	c.sendResponse("write_file", fileop.WriteFileResponse{Success: true})
+	c.sendResponse("write_file", fileop.WriteFileResponse{Success: true}, sessionID)
 }
 
-func (c *Client) handleDeleteFile(payload json.RawMessage) {
+func (c *Client) handleDeleteFile(payload json.RawMessage, sessionID string) {
 	var req fileop.DeleteFileRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
-		c.sendErrorResponse("delete_file", "invalid payload: "+err.Error())
+		c.sendErrorResponse("delete_file", "invalid payload: "+err.Error(), sessionID)
 		return
 	}
 
 	err := c.fileHandler.DeleteFile(req.Path)
 	if err != nil {
-		c.sendErrorResponse("delete_file", err.Error())
+		c.sendErrorResponse("delete_file", err.Error(), sessionID)
 		return
 	}
 
-	c.sendResponse("delete_file", map[string]bool{"success": true})
+	c.sendResponse("delete_file", map[string]bool{"success": true}, sessionID)
 }
 
-func (c *Client) handleStatFile(payload json.RawMessage) {
+func (c *Client) handleStatFile(payload json.RawMessage, sessionID string) {
 	var req fileop.GetFileInfoRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
-		c.sendErrorResponse("stat_file", "invalid payload: "+err.Error())
+		c.sendErrorResponse("stat_file", "invalid payload: "+err.Error(), sessionID)
 		return
 	}
 
 	info, err := c.fileHandler.GetFileInfo(req.Path)
 	if err != nil {
-		c.sendErrorResponse("stat_file", err.Error())
+		c.sendErrorResponse("stat_file", err.Error(), sessionID)
 		return
 	}
 
-	c.sendResponse("stat_file", info)
+	c.sendResponse("stat_file", info, sessionID)
 }
 
-func (c *Client) handleChmod(payload json.RawMessage) {
+func (c *Client) handleChmod(payload json.RawMessage, sessionID string) {
 	var req fileop.ChmodRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
-		c.sendErrorResponse("chmod", "invalid payload: "+err.Error())
+		c.sendErrorResponse("chmod", "invalid payload: "+err.Error(), sessionID)
 		return
 	}
 
 	err := c.fileHandler.ChangePermission(req.Path, req.Mode)
 	if err != nil {
-		c.sendErrorResponse("chmod", err.Error())
+		c.sendErrorResponse("chmod", err.Error(), sessionID)
 		return
 	}
 
-	c.sendResponse("chmod", map[string]bool{"success": true})
+	c.sendResponse("chmod", map[string]bool{"success": true}, sessionID)
 }
 
-func (c *Client) handleChown(payload json.RawMessage) {
+func (c *Client) handleChown(payload json.RawMessage, sessionID string) {
 	var req fileop.ChownRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
-		c.sendErrorResponse("chown", "invalid payload: "+err.Error())
+		c.sendErrorResponse("chown", "invalid payload: "+err.Error(), sessionID)
 		return
 	}
 
 	err := c.fileHandler.ChangeOwnership(req.Path, req.Owner, req.Group)
 	if err != nil {
-		c.sendErrorResponse("chown", err.Error())
+		c.sendErrorResponse("chown", err.Error(), sessionID)
 		return
 	}
 
-	c.sendResponse("chown", map[string]bool{"success": true})
+	c.sendResponse("chown", map[string]bool{"success": true}, sessionID)
 }
 
-func (c *Client) sendResponse(msgType string, payload interface{}) {
+func (c *Client) sendResponse(msgType string, payload interface{}, sessionID string) {
 	resp := map[string]interface{}{
 		"type":    msgType + "_resp",
 		"payload": payload,
+	}
+	if sessionID != "" {
+		resp["session"] = sessionID
 	}
 
 	data, err := json.Marshal(resp)
@@ -490,10 +494,13 @@ func (c *Client) sendResponse(msgType string, payload interface{}) {
 	}
 }
 
-func (c *Client) sendErrorResponse(msgType, errMsg string) {
+func (c *Client) sendErrorResponse(msgType, errMsg string, sessionID string) {
 	resp := map[string]interface{}{
 		"type":  msgType + "_resp",
 		"error": errMsg,
+	}
+	if sessionID != "" {
+		resp["session"] = sessionID
 	}
 
 	data, err := json.Marshal(resp)

@@ -158,14 +158,25 @@
             />
           </div>
           <div class="form-group">
-            <label class="form-label">Group ID (Optional)</label>
-            <input
-              v-model="newDeviceGroupId"
-              class="form-input"
-              type="text"
-              placeholder="Enter group ID"
-              @keyup.enter="handleAddDevice"
-            />
+            <label class="form-label">Platform</label>
+            <select v-model="newDevicePlatform" class="form-input">
+              <option value="jetson">NVIDIA Jetson</option>
+              <option value="rdx">RDX</option>
+              <option value="rpi">Raspberry Pi</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Architecture</label>
+            <div class="radio-group">
+              <label class="radio-label">
+                <input type="radio" v-model="newDeviceArch" value="arm64" />
+                ARM64
+              </label>
+              <label class="radio-label">
+                <input type="radio" v-model="newDeviceArch" value="amd64" />
+                AMD64
+              </label>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -173,6 +184,47 @@
           <button class="btn btn-primary" :disabled="addingDevice || !newDeviceName.trim()" @click="handleAddDevice">
             {{ addingDevice ? 'Adding...' : 'Add' }}
           </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showTokenDialog" class="modal-backdrop">
+      <div class="modal modal-token">
+        <div class="modal-header">
+          <h3>Device Registered</h3>
+          <button class="modal-close" @click="showTokenDialog = false">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="token-warning">
+            <svg viewBox="0 0 20 20" fill="currentColor" style="width: 24px; height: 24px; color: #f59e0b; flex-shrink: 0">
+              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clip-rule="evenodd" />
+            </svg>
+            <div>
+              <strong>Save this token now!</strong> It will only be shown once. You'll need it to configure the agent.
+            </div>
+          </div>
+          <div class="token-field">
+            <label class="form-label">Device ID</label>
+            <div class="copy-field">
+              <code class="copy-value">{{ registeredDeviceId }}</code>
+              <button class="btn-copy" @click="copyToClipboard(registeredDeviceId)">Copy</button>
+            </div>
+          </div>
+          <div class="token-field">
+            <label class="form-label">Agent Token</label>
+            <div class="copy-field">
+              <code class="copy-value">{{ registeredAgentToken }}</code>
+              <button class="btn-copy" @click="copyToClipboard(registeredAgentToken)">Copy</button>
+            </div>
+          </div>
+          <div class="token-hint">
+            <p>Configure the agent with:</p>
+            <code>DEVICE_ID={{ registeredDeviceId }}</code>
+            <code>AGENT_TOKEN={{ registeredAgentToken }}</code>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" @click="showTokenDialog = false; loadData()">Done</button>
         </div>
       </div>
     </div>
@@ -197,8 +249,12 @@ const deleteTarget = ref<any>(null)
 const deleting = ref(false)
 
 const newDeviceName = ref('')
-const newDeviceGroupId = ref('')
+const newDevicePlatform = ref('jetson')
+const newDeviceArch = ref('arm64')
 const addingDevice = ref(false)
+const showTokenDialog = ref(false)
+const registeredDeviceId = ref('')
+const registeredAgentToken = ref('')
 
 const filters = [
   { label: 'All', value: 'all' },
@@ -263,20 +319,31 @@ async function handleAddDevice() {
   }
   addingDevice.value = true
   try {
-    await deviceApi.create({
+    const result = await deviceApi.create({
       name: newDeviceName.value.trim(),
-      group_id: newDeviceGroupId.value || undefined,
+      platform: newDevicePlatform.value,
+      arch: newDeviceArch.value,
     })
-    ElMessage.success('Device added successfully')
+    registeredDeviceId.value = result.device_id
+    registeredAgentToken.value = result.agent_token
     showAddDialog.value = false
+    showTokenDialog.value = true
     newDeviceName.value = ''
-    newDeviceGroupId.value = ''
-    await loadData()
+    newDevicePlatform.value = 'jetson'
+    newDeviceArch.value = 'arm64'
   } catch (e: any) {
-    ElMessage.error(e.response?.data?.message || 'Failed to add device')
+    ElMessage.error(e.response?.data?.error || 'Failed to add device')
   } finally {
     addingDevice.value = false
   }
+}
+
+function copyToClipboard(text: string) {
+  navigator.clipboard.writeText(text).then(() => {
+    ElMessage.success('Copied to clipboard')
+  }).catch(() => {
+    ElMessage.error('Failed to copy')
+  })
 }
 
 async function loadData() {
@@ -578,5 +645,117 @@ onMounted(loadData)
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.radio-group {
+  display: flex;
+  gap: 16px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.radio-label input[type="radio"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.modal-token {
+  max-width: 520px;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+}
+
+.modal-close:hover {
+  color: var(--text-primary);
+}
+
+.token-warning {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--accent-warning, #f59e0b);
+  font-size: 14px;
+  margin-bottom: 16px;
+  align-items: flex-start;
+}
+
+.token-field {
+  margin-bottom: 14px;
+}
+
+.copy-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-input, #f3f4f6);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.copy-value {
+  flex: 1;
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0;
+}
+
+.btn-copy {
+  padding: 4px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary, #fff);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-copy:hover {
+  background: var(--bg-hover, #f3f4f6);
+}
+
+.token-hint {
+  margin-top: 16px;
+  padding: 12px;
+  background: rgba(59, 130, 246, 0.06);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-radius: var(--radius-md);
+}
+
+.token-hint p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 8px 0;
+}
+
+.token-hint code {
+  display: block;
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  padding: 4px 0;
 }
 </style>

@@ -85,11 +85,14 @@ func main() {
 	}
 
 	hub := websocket.NewHub()
+	hub.SetDB(db)
+	go hub.Run()
 	gw := websocket.NewGateway(redisClient.Raw(), hub)
+	hub.SetDisconnectCallback(gw.HandleDeviceDisconnect)
 	gw.SetMessageHandler(nil)
 
 	routes.SetupAuthRoutes(r, db, redisClient)
-	routes.SetupDeviceRoutes(r, db, redisClient)
+	routes.SetupDeviceRoutes(r, db, redisClient, hub)
 	routes.SetupGroupRoutes(r, db)
 	routes.SetupTerminalRoutes(r, db, redisClient, gw)
 	routes.SetupFileRoutes(r, db, redisClient, gw)
