@@ -182,9 +182,9 @@ func (m *PTYManager) CreateSession(payload json.RawMessage, sessionID string) er
 	if err := m.sendJSON(map[string]interface{}{
 		"type":    "create_pty_resp",
 		"session": sessionID,
-		"payload": PTYReady{
-			SessionID: req.SessionID,
-			PtyPath:   ptmx.Name(),
+		"payload": map[string]interface{}{
+			"success":  true,
+			"pty_path": ptmx.Name(),
 		},
 	}); err != nil {
 		m.log.Error("Failed to send PTY ready message", "error", err)

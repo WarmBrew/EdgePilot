@@ -157,6 +157,11 @@ func (g *Gateway) HandleWebSocket(c *gin.Context) {
 
 // SendMessageToDevice sends a message to a specific device.
 func (g *Gateway) SendMessageToDevice(deviceID, messageType string, payload interface{}) error {
+	return g.SendMessageToDeviceWithSession(deviceID, messageType, payload, "")
+}
+
+// SendMessageToDeviceWithSession sends a message to a specific device with session tracking.
+func (g *Gateway) SendMessageToDeviceWithSession(deviceID, messageType string, payload interface{}, sessionID string) error {
 	ctx := context.Background()
 
 	online, err := g.isDeviceOnline(ctx, deviceID)
@@ -183,6 +188,9 @@ func (g *Gateway) SendMessageToDevice(deviceID, messageType string, payload inte
 	msg := &WSMessage{
 		Type:    messageType,
 		Payload: rawPayload,
+	}
+	if sessionID != "" {
+		msg.Session = sessionID
 	}
 
 	return client.Send(msg)
@@ -318,7 +326,7 @@ func (g *Gateway) SendAndWait(ctx context.Context, deviceID, messageType string,
 		g.respMu.Unlock()
 	}()
 
-	if err := g.SendMessageToDevice(deviceID, messageType, payload); err != nil {
+	if err := g.SendMessageToDeviceWithSession(deviceID, messageType, payload, sessionID); err != nil {
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
 
